@@ -58,7 +58,7 @@ COMMIT TX100
 3. 回滚事务:
    1. 将`Rollback`标记写入`WAL`日志中。(此时的`WAL`日志可能存在于缓冲区, 没有刷入文件)
    2. 将`WAL`日志刷入磁盘。(此时`WAL`日志已经刷入磁盘)
-   3. 如果隔离级别不是`Read Committed`, 则将暂存的`PUT/DELETE`操作简单丢弃即可
+   3. 如果隔离级别不是`Read Uncommitted`, 则将暂存的`PUT/DELETE`操作简单丢弃即可
    4. 如果隔离级别是`Read Committed`, 则将操作前的数据库状态进行还原(作者的设计是利用`TranContext`中的`rollback_map_`进行还原, 当然这取决于你之前的`Lab`实现)
    5. 返回给`client`成功或失败
 
