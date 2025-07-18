@@ -28,7 +28,7 @@ COMMIT TX100
 3. 提交事务:
    1. 将`COMMIT`标记写入`WAL`日志中。(此时的`WAL`日志可能存在于缓冲区, 没有刷入文件)
    2. 将`WAL`日志刷入磁盘。(此时`WAL`日志已经刷入磁盘)
-   3. 如果隔离级别不是`Read Committed`, 则将暂存的`PUT/DELETE`操作应用到数据库
+   3. 如果隔离级别不是`Read Uncommitted`, 则将暂存的`PUT/DELETE`操作应用到数据库
    4. 返回给`client`成功或失败
 4. 之前事务的`PUT/DELETE`操作的变化应用到数据库仍然是位于`MemTable`中的, 其会稍后输入`SST`
 
@@ -40,9 +40,9 @@ COMMIT TX100
 3. 提交事务:
    1. 将`COMMIT`标记写入`WAL`日志中。(此时的`WAL`日志可能存在于缓冲区, 没有刷入文件)
    2. 将`WAL`日志刷入磁盘。(此时`WAL`日志已经刷入磁盘)
-   3. 如果隔离级别不是`Read Committed`, 则将暂存的`PUT/DELETE`操作应用到数据库
+   3. 如果隔离级别不是`Read Uncommitted`, 则将暂存的`PUT/DELETE`操作应用到数据库
    4. 返回给`client`成功或失败
-4. 之前事务的`PUT/DELETE`操作的变化应用到数据库仍然是位于`MemTable`中的, 其稍后输入`SST`奔溃
+4. 之前事务的`PUT/DELETE`操作的变化应用到数据库仍然是位于`MemTable`中的, 其稍后刷入`SST`奔溃
 5. 数据库重启后执行崩溃回复
    1. 检查`WAL`文件的记录
    2. 整合事务`id`每条记录, 忽略以`Rollback`结尾的事务
@@ -59,7 +59,7 @@ COMMIT TX100
    1. 将`Rollback`标记写入`WAL`日志中。(此时的`WAL`日志可能存在于缓冲区, 没有刷入文件)
    2. 将`WAL`日志刷入磁盘。(此时`WAL`日志已经刷入磁盘)
    3. 如果隔离级别不是`Read Uncommitted`, 则将暂存的`PUT/DELETE`操作简单丢弃即可
-   4. 如果隔离级别是`Read Committed`, 则将操作前的数据库状态进行还原(作者的设计是利用`TranContext`中的`rollback_map_`进行还原, 当然这取决于你之前的`Lab`实现)
+   4. 如果隔离级别是`Read Uncommitted`, 则将操作前的数据库状态进行还原(作者的设计是利用`TranContext`中的`rollback_map_`进行还原, 当然这取决于你之前的`Lab`实现)
    5. 返回给`client`成功或失败
 
 # 2 崩溃恢复代码实现
