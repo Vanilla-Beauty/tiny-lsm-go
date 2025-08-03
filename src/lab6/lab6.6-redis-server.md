@@ -4,6 +4,8 @@
 
 这一部分内容其实也很简单，网络框架作者已经为你搭建好了，你只需要实现`Resp`请求的解析, 利用解析出的参数调用我们之前实现的各个命令的接口即可。
 
+> 在初版的`Lab`中, 我们使用了`muduo`作为网络框架, 但由于`muduo`仅支持`Linux`, 因此在后续版本中我们将其替换为`asio`, 这是一个跨平台的网络库, 支持`Windows`, `MacOS`和`Linux`。使用`asio`后，本实验可以在所有主流操作系统上运行: `Linux`+`MacOS`+`Windows`(`Wsl`)
+
 # 2 代码实现
 这节课你可以修改`server`文件夹下的任何文件
 ```bash
@@ -17,14 +19,24 @@
 
 你需要实现的接口为:
 ```cpp
-// server/src/server.cpp
-std::string handleRequest(const std::string &request) {
+  std::string handleRequest(const std::string &request) {
     // TODO: Lab 6.6 处理网络传输的RESP字节流
     // TODO: Lab 6.6 形成参数并调用 redis_wrapper 的api
     // TODO: Lab 6.6 返回结果
-return "";
-}
+    return "";
+  }
 ```
+
+> 如果你做得是初版的`Lab`, 这里实现的接口有所差异:
+> ```cpp
+> // server/src/server.cpp
+> std::string handleRequest(const std::string &request) {
+>   // TODO: Lab 6.6 处理网络传输的RESP字节流
+>   // TODO: Lab 6.6 形成参数并调用 redis_wrapper 的api
+>   // TODO: Lab 6.6 返回结果
+> return "";
+> }
+> ```
 
 `handleRequest`前后的网络包收发逻辑已经为你写好, 你只需要在这个函数中解析`RESP`协议, 调用`redis_wrapper`的接口即可。当然, 你也可以直接新增各种辅助函数。
 
