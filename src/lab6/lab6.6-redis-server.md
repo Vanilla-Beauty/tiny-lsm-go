@@ -27,17 +27,6 @@
   }
 ```
 
-> 如果你做得是初版的`Lab`, 这里实现的接口有所差异:
-> ```cpp
-> // server/src/server.cpp
-> std::string handleRequest(const std::string &request) {
->   // TODO: Lab 6.6 处理网络传输的RESP字节流
->   // TODO: Lab 6.6 形成参数并调用 redis_wrapper 的api
->   // TODO: Lab 6.6 返回结果
-> return "";
-> }
-> ```
-
 `handleRequest`前后的网络包收发逻辑已经为你写好, 你只需要在这个函数中解析`RESP`协议, 调用`redis_wrapper`的接口即可。当然, 你也可以直接新增各种辅助函数。
 
 > 除了我们之前实现的各种命令外, 你还需要实现`PING`命令, 这个命令不需要任何参数, 只需要返回`"+PONG\r\n"`即可。其内在含义表示服务器正在运行。
