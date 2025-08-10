@@ -119,7 +119,8 @@ target("example")
 
 <img src="images/lab0/clangd-error.png" width="500">
 
-这是因为语言服务器找不到第三方包的头文件, 由于我们使用的语言服务器是`clangd`, 我们可以在项目根目录中添加`.clangd`配置文件, 让`clangd`知道我们的第三方包头文件的位置:
+这是因为语言服务器找不到第三方包的头文件, 由于我们使用的语言服务器是`clangd`, 我们可以在项目根目录中添加`.clangd`配置文件, 可以用下面两种方式解决:
+### 3.3.1 配置`.clangd`文件
 ```yaml
 CompileFlags:            # 编译标志部分
   Add:
@@ -127,8 +128,24 @@ CompileFlags:            # 编译标志部分
     - "-isystem/home/vanilla-beauty/proj/vcpkg/installed/x64-linux/include" # 包含头文件, 绝对路径
     - "-isystem/home/vanilla-beauty/.xmake/packages/m/muduo/2022.11.01/e9382a25649e4e43bf04f01f925d9c2f/include" # 包含头文件, 绝对路径
 ```
-
 这样一来之前的告警就不复存在了
+
+关于`.clangd`文件的更多用法, 可以参考: 
+- [官方文档](https://clangd.llvm.org/config)
+- [我的博客文章](https://zhuanlan.zhihu.com/p/871508940)
+
+### 3.3.2 生成`compile_commands.json`文件
+这里首先简单介绍下`compile_commands.json`文件是什么, `compile_commands.json` 文件是一个标准的 JSON 文件，它包含了项目中每个源文件编译时所使用的命令。这个文件通常被 IDE 和 代码分析工具 用来获取项目的编译信息，从而实现以下功能：
+
+- 代码补全和智能提示：通过解析编译命令中的头文件路径和宏定义，工具可以提供更准确的代码补全。
+- 代码导航：工具能够快速跳转到头文件和函数定义。
+- 静态分析：分析工具可以利用完整的编译命令来更精确地检查代码中的潜在问题。
+
+在本项目中, 你可以通过下面的命令生成`compile_commands.json`文件:
+```bash
+xmake project -k compile_commands
+```
+生成的`compile_commands.json`文件会放在项目根目录下, 此后重新用`VSCode`或者`Vim`打开项目, 你就可以看到高亮和跳转了(前提是C++的语言服务器是`clangd`)
 
 ## 3.4 其他实用插件
 ### 3.4.1 Better Comments && TodoTree
