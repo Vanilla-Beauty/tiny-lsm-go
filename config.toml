@@ -1,0 +1,45 @@
+# Tiny-LSM-Go Configuration File
+# This configuration file defines parameters for the LSM-tree storage engine
+
+# LSM Tree Core Configuration
+[lsm.core]
+# Total memory table size limit (64MB)
+LSM_TOL_MEM_SIZE_LIMIT = 67108864
+# Per-memory table size limit (4MB)
+LSM_PER_MEM_SIZE_LIMIT = 4194304
+# Block size (32KB)
+LSM_BLOCK_SIZE = 32768
+# SST level size ratio
+LSM_SST_LEVEL_RATIO = 4
+
+# LSM Block Cache Configuration
+[lsm.cache]
+# Block cache capacity
+LSM_BLOCK_CACHE_CAPACITY = 1024
+# LRU-K K value for cache
+LSM_BLOCK_CACHE_K = 8
+
+# Bloom Filter Configuration
+[bloom_filter]
+# Expected number of elements
+BLOOM_FILTER_EXPECTED_SIZE = 65536
+# Expected false positive rate
+BLOOM_FILTER_EXPECTED_ERROR_RATE = 0.1
+
+# WAL Configuration
+[wal]
+# WAL buffer size
+WAL_BUFFER_SIZE = 1048576  # 1MB
+# WAL file size limit
+WAL_FILE_SIZE_LIMIT = 67108864  # 64MB
+# WAL clean interval (seconds)
+WAL_CLEAN_INTERVAL = 300
+
+# Compaction Configuration
+[compaction]
+# Enable automatic compaction
+ENABLE_AUTO_COMPACTION = true
+# Compaction trigger ratio
+COMPACTION_TRIGGER_RATIO = 2
+# Maximum compaction threads
+MAX_COMPACTION_THREADS = 2
