@@ -1,6 +1,7 @@
 package lsm
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,32 +37,30 @@ const (
 
 // Transaction represents a database transaction
 type Transaction struct {
-	id           uint64
-	state        TransactionState
-	isolation    IsolationLevel
-	startTime    time.Time
-	commitTime   time.Time
-	readTxnID    uint64 // Transaction ID used for reads (for snapshot isolation)
-	manager      *TransactionManager
-	mu           sync.RWMutex
+	id         uint64
+	state      TransactionState
+	isolation  IsolationLevel
+	startTime  time.Time
+	commitTime time.Time
+	readTxnID  uint64 // Transaction ID used for reads (for snapshot isolation)
+	manager    *TransactionManager
+	mu         sync.RWMutex
 
 	// Transaction-specific data storage for non READ_UNCOMMITTED levels
-	tempMap      map[string]string            // Temporary storage for uncommitted writes
-	readMap      map[string]*ReadRecord       // Read history for REPEATABLE_READ and SERIALIZABLE
-	rollbackMap  map[string]*RollbackRecord   // Rollback information for READ_UNCOMMITTED
-	operations   []*wal.Record               // WAL operations for this transaction
+	tempMap     map[string]string          // Temporary storage for uncommitted writes
+	readMap     map[string]*ReadRecord     // Read history for REPEATABLE_READ and SERIALIZABLE
+	rollbackMap map[string]*RollbackRecord // Rollback information for READ_UNCOMMITTED
+	operations  []*wal.Record              // WAL operations for this transaction
 }
 
 // TransactionManager manages database transactions
 type TransactionManager struct {
-	engine          *Engine
-	nextTxnID       uint64
-	activeTxns      map[uint64]*Transaction
-	committedTxns   map[uint64]*Transaction
-	globalReadTxnID uint64 // Global read transaction ID for snapshot isolation
-	mu              sync.RWMutex
-	config          *TransactionConfig
-	persistence     *TransactionPersistence // Transaction state persistence
+	engine        *Engine
+	activeTxns    map[uint64]*Transaction
+	committedTxns map[uint64]*Transaction
+	mu            sync.RWMutex
+	config        *TransactionConfig
+	persistence   *TransactionPersistence // Transaction state persistence
 }
 
 // TransactionConfig holds transaction manager configuration
@@ -93,12 +92,10 @@ func NewTransactionManager(engine *Engine, config *TransactionConfig) *Transacti
 	}
 
 	mgr := &TransactionManager{
-		engine:          engine,
-		nextTxnID:       1,
-		activeTxns:      make(map[uint64]*Transaction),
-		committedTxns:   make(map[uint64]*Transaction),
-		globalReadTxnID: 1,
-		config:          config,
+		engine:        engine,
+		activeTxns:    make(map[uint64]*Transaction),
+		committedTxns: make(map[uint64]*Transaction),
+		config:        config,
 	}
 
 	// Start cleanup goroutine
@@ -114,13 +111,11 @@ func NewTransactionManagerWithPersistence(engine *Engine, config *TransactionCon
 	}
 
 	mgr := &TransactionManager{
-		engine:          engine,
-		nextTxnID:       1,
-		activeTxns:      make(map[uint64]*Transaction),
-		committedTxns:   make(map[uint64]*Transaction),
-		globalReadTxnID: 1,
-		config:          config,
-		persistence:     NewTransactionPersistence(dataDir),
+		engine:        engine,
+		activeTxns:    make(map[uint64]*Transaction),
+		committedTxns: make(map[uint64]*Transaction),
+		config:        config,
+		persistence:   NewTransactionPersistence(dataDir),
 	}
 
 	// Try to recover previous transaction state
@@ -149,8 +144,8 @@ func (m *TransactionManager) BeginWithIsolation(isolation IsolationLevel) (*Tran
 		return nil, ErrTooManyActiveTxns
 	}
 
-	txnID := atomic.AddUint64(&m.nextTxnID, 1)
-	readTxnID := atomic.LoadUint64(&m.globalReadTxnID)
+	txnID := atomic.AddUint64(&m.engine.metadata.NextTxnID, 1) - 1
+	readTxnID := atomic.LoadUint64(&m.engine.metadata.GlobalReadTxnID)
 
 	txn := &Transaction{
 		id:        txnID,
@@ -202,7 +197,7 @@ func (m *TransactionManager) GetCommittedTransactionCount() int {
 
 // GetNextTxnID returns the next transaction ID that will be assigned
 func (m *TransactionManager) GetNextTxnID() uint64 {
-	return atomic.LoadUint64(&m.nextTxnID)
+	return atomic.LoadUint64(&m.engine.metadata.NextTxnID)
 }
 
 // cleanupWorker runs periodically to clean up old committed transactions
@@ -221,7 +216,7 @@ func (m *TransactionManager) cleanupOldTransactions() {
 	defer m.mu.Unlock()
 
 	cutoff := time.Now().Add(-m.config.CleanupInterval * 2)
-	
+
 	for txnID, txn := range m.committedTxns {
 		if txn.commitTime.Before(cutoff) {
 			delete(m.committedTxns, txnID)
@@ -264,12 +259,12 @@ func (t *Transaction) CommitTime() time.Time {
 func (t *Transaction) ReadTxnID() uint64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	
+
 	if t.state == TxnActive {
 		// Active transactions can read their own writes
 		return t.id
 	}
-	
+
 	// Use snapshot for non-active transactions
 	return t.readTxnID
 }
@@ -292,7 +287,6 @@ func (t *Transaction) Commit() error {
 	switch t.isolation {
 	case ReadUncommitted:
 		// READ_UNCOMMITTED: Data already written, just add commit record
-		t.operations = append(t.operations, wal.NewCommitRecord(t.id))
 
 	default:
 		// Other isolation levels: Need conflict detection and batch apply
@@ -304,14 +298,19 @@ func (t *Transaction) Commit() error {
 			t.manager.mu.Unlock()
 			return err
 		}
+	}
 
-		// Apply changes to database
-		if err := t.applyChanges(); err != nil {
-			return err
-		}
+	// Add commit record
+	t.operations = append(t.operations, wal.NewCommitRecord(t.id))
 
-		// Add commit record
-		t.operations = append(t.operations, wal.NewCommitRecord(t.id))
+	// Write all operations to WAL
+	if err := t.manager.engine.wal.Log(t.operations, true); err != nil {
+		return fmt.Errorf("failed to write transaction operations to WAL: %w", err)
+	}
+
+	// Apply changes to database
+	if err := t.applyChanges(); err != nil {
+		return err
 	}
 
 	// Mark transaction as committed
@@ -322,9 +321,9 @@ func (t *Transaction) Commit() error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t.id)
 	t.manager.committedTxns[t.id] = t
-	
+
 	// Update global read transaction ID for new snapshots
-	atomic.StoreUint64(&t.manager.globalReadTxnID, t.id)
+	atomic.StoreUint64(&t.manager.engine.metadata.GlobalReadTxnID, t.id)
 	t.manager.mu.Unlock()
 
 	// Force flush to ensure durability
@@ -346,7 +345,7 @@ func (t *Transaction) Rollback() error {
 		if err := t.rollbackChanges(); err != nil {
 			return err
 		}
-		
+
 		// Add rollback record to WAL
 		t.operations = append(t.operations, wal.NewRollbackRecord(t.id))
 	}
@@ -386,16 +385,16 @@ func (t *Transaction) IsAborted() bool {
 
 // ReadRecord represents a read operation record for isolation levels
 type ReadRecord struct {
-	Value   string
-	TxnID   uint64
-	Exists  bool
+	Value  string
+	TxnID  uint64
+	Exists bool
 }
 
 // RollbackRecord represents rollback information for READ_UNCOMMITTED
 type RollbackRecord struct {
-	Value   string
-	TxnID   uint64
-	Exists  bool
+	Value  string
+	TxnID  uint64
+	Exists bool
 }
 
 // KVPair represents a key-value pair for batch operations
@@ -423,7 +422,7 @@ func (t *Transaction) detectConflicts() error {
 			// This is a simplified approach - in a full implementation,
 			// we would need to track the txnID for each modification
 			// For now, we use a simple heuristic based on the global read transaction ID
-			globalReadTxnID := atomic.LoadUint64(&t.manager.globalReadTxnID)
+			globalReadTxnID := atomic.LoadUint64(&t.manager.engine.metadata.GlobalReadTxnID)
 			if globalReadTxnID > t.id {
 				// A later transaction has committed changes, potential conflict
 				return ErrWriteConflict
@@ -436,6 +435,10 @@ func (t *Transaction) detectConflicts() error {
 
 // applyChanges applies the temporary changes to the database
 func (t *Transaction) applyChanges() error {
+	if t.isolation == ReadUncommitted {
+		return nil // No change application needed for other isolation levels
+	}
+
 	for key, value := range t.tempMap {
 		if value == "" {
 			// Empty string marks deletion

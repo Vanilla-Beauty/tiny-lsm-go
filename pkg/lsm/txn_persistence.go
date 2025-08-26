@@ -18,12 +18,12 @@ type TransactionPersistence struct {
 
 // TransactionRecord represents a persisted transaction record
 type TransactionRecord struct {
-	TxnID       uint64            `json:"txn_id"`
-	State       TransactionState  `json:"state"`
-	Isolation   IsolationLevel    `json:"isolation"`
-	StartTime   int64             `json:"start_time"`  // Unix timestamp
-	CommitTime  int64             `json:"commit_time"` // Unix timestamp
-	Operations  []*wal.Record     `json:"operations"`
+	TxnID      uint64           `json:"txn_id"`
+	State      TransactionState `json:"state"`
+	Isolation  IsolationLevel   `json:"isolation"`
+	StartTime  int64            `json:"start_time"`  // Unix timestamp
+	CommitTime int64            `json:"commit_time"` // Unix timestamp
+	Operations []*wal.Record    `json:"operations"`
 }
 
 // NewTransactionPersistence creates a new transaction persistence manager
@@ -45,9 +45,9 @@ func (tp *TransactionPersistence) SaveTransactionState(manager *TransactionManag
 
 	// Collect transaction records
 	var records []TransactionRecord
-	
+
 	manager.mu.RLock()
-	
+
 	// Save committed transactions (active ones are volatile)
 	for _, txn := range manager.committedTxns {
 		record := TransactionRecord{
@@ -60,7 +60,7 @@ func (tp *TransactionPersistence) SaveTransactionState(manager *TransactionManag
 		}
 		records = append(records, record)
 	}
-	
+
 	manager.mu.RUnlock()
 
 	// Marshal to JSON
@@ -84,7 +84,7 @@ func (tp *TransactionPersistence) LoadTransactionState() ([]TransactionRecord, e
 	defer tp.mu.RUnlock()
 
 	filePath := tp.GetTransactionFilePath()
-	
+
 	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		// No existing state file, return empty records
@@ -112,7 +112,7 @@ func (tp *TransactionPersistence) CleanupTransactionState() error {
 	defer tp.mu.Unlock()
 
 	filePath := tp.GetTransactionFilePath()
-	
+
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		// File doesn't exist, nothing to cleanup
 		return nil
@@ -141,7 +141,7 @@ func (tp *TransactionPersistence) RecoverTransactionState(manager *TransactionMa
 	}
 
 	// Update next transaction ID to be higher than any recovered ID
-	manager.nextTxnID = maxTxnID + 1
+	manager.engine.metadata.NextTxnID = maxTxnID + 1
 
 	return nil
 }

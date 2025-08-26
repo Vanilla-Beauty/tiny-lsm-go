@@ -34,18 +34,14 @@ type EngineStatistics struct {
 
 // EngineMetadata represents the metadata that needs to be persisted
 type EngineMetadata struct {
-	NextSSTID uint64 `json:"next_sst_id"`
-	NextTxnID uint64 `json:"next_txn_id"`
+	NextSSTID       uint64 `json:"next_sst_id"`
+	NextTxnID       uint64 `json:"next_txn_id"`
+	GlobalReadTxnID uint64 `json:"global_read_txn_id"`
 }
 
 // saveMetadata saves the engine metadata to disk
 func saveMetadata(e *Engine) error {
-	metadata := EngineMetadata{
-		NextSSTID: atomic.LoadUint64(&e.nextSSTID),
-		NextTxnID: atomic.LoadUint64(&e.nextTxnID),
-	}
-
-	data, err := json.MarshalIndent(metadata, "", "  ")
+	data, err := json.MarshalIndent(e.metadata, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
@@ -62,8 +58,9 @@ func loadMetadata(e *Engine) error {
 	// Check if metadata file exists
 	if _, err := os.Stat(e.metadataFile); os.IsNotExist(err) {
 		// No existing metadata file, use defaults
-		atomic.StoreUint64(&e.nextSSTID, 0)
-		atomic.StoreUint64(&e.nextTxnID, 1)
+		atomic.StoreUint64(&e.metadata.NextSSTID, 0)
+		atomic.StoreUint64(&e.metadata.NextTxnID, 1)
+		atomic.StoreUint64(&e.metadata.GlobalReadTxnID, 1)
 		return nil
 	}
 
@@ -74,23 +71,16 @@ func loadMetadata(e *Engine) error {
 	}
 
 	// Unmarshal JSON
-	var metadata EngineMetadata
-	if err := json.Unmarshal(data, &metadata); err != nil {
+	if e.metadata == nil {
+		e.metadata = &EngineMetadata{}
+	}
+	if err := json.Unmarshal(data, e.metadata); err != nil {
 		return fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
-
-	atomic.StoreUint64(&e.nextSSTID, metadata.NextSSTID)
-	atomic.StoreUint64(&e.nextTxnID, metadata.NextTxnID)
 
 	return nil
 }
 
 func readMetadata(e *Engine) *EngineMetadata {
-	// Unmarshal JSON
-	var metadata EngineMetadata
-
-	atomic.StoreUint64(&metadata.NextSSTID, e.nextSSTID)
-	atomic.StoreUint64(&metadata.NextTxnID, e.nextTxnID)
-
-	return &metadata
+	return e.metadata
 }

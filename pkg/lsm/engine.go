@@ -27,9 +27,8 @@ type Engine struct {
 	fileManager *utils.FileManager
 
 	// SST management
-	levels    *LevelManager
-	nextSSTID uint64
-	nextTxnID uint64
+	levels   *LevelManager
+	metadata *EngineMetadata
 
 	// WAL management
 	wal *wal.WAL
@@ -38,9 +37,8 @@ type Engine struct {
 	metadataFile string
 
 	// Synchronization
-	mu        sync.RWMutex
-	flushMu   sync.Mutex
-	compactMu sync.Mutex
+	flushMu sync.Mutex
+	sstMu   sync.RWMutex
 
 	// Background workers
 	stopCh chan struct{}
@@ -91,15 +89,18 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 	}
 
 	engine := &Engine{
-		config:       cfg,
-		dataDir:      dataDir,
-		memTable:     mt,
-		blockCache:   blockCache,
-		fileManager:  fileManager,
-		levels:       levels,
-		wal:          walInstance,
-		nextSSTID:    0,
-		nextTxnID:    1,
+		config:      cfg,
+		dataDir:     dataDir,
+		memTable:    mt,
+		blockCache:  blockCache,
+		fileManager: fileManager,
+		levels:      levels,
+		wal:         walInstance,
+		metadata: &EngineMetadata{
+			NextSSTID:       0,
+			NextTxnID:       1,
+			GlobalReadTxnID: 1,
+		},
 		stopCh:       make(chan struct{}),
 		stats:        &EngineStatistics{},
 		metadataFile: filepath.Join(dataDir, "metadata"),
@@ -171,11 +172,11 @@ func (e *Engine) recoverFromWAL() error {
 	}
 
 	// Update next transaction ID to be higher than any recovered ID
-	if maxTxnID >= e.nextTxnID {
-		e.nextTxnID = maxTxnID + 1
+	if maxTxnID >= e.metadata.NextTxnID {
+		e.metadata.NextTxnID = maxTxnID + 1
 	}
 
-	fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.nextTxnID)
+	fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
 	return nil
 }
 
@@ -243,26 +244,35 @@ func (e *Engine) Put(key, value string) error {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
 
-	txnID := atomic.AddUint64(&e.nextTxnID, 1)
+	err := e._put(key, value, txnID)
+	if err != nil {
+		return err
+	}
 
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+	}
+
+	atomic.AddUint64(&e.stats.Writes, 1)
+	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
+	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
+
+	return nil
+}
+
+// need lock outside
+func (e *Engine) _put(key, value string, txnID uint64) error {
+	if e.closed {
+		return ErrEngineClosed
 	}
 
 	err := e.memTable.Put(key, value, txnID)
 	if err != nil {
 		return err
 	}
-
-	atomic.AddUint64(&e.stats.Writes, 1)
-	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
-	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
 
 	return nil
 }
@@ -273,22 +283,44 @@ func (e *Engine) Get(key string) (string, bool, error) {
 		return "", false, ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	atomic.AddUint64(&e.stats.Reads, 1)
 
-	// First, check memtable (current + frozen)
-	value, found, err := e.memTable.Get(key, 0) // Read all versions
+	val, found, err := e._mem_get(key)
 	if err != nil {
 		return "", false, err
 	}
 	if found {
-		return value, true, nil
+
+		if val == "" {
+			return "", false, nil
+		}
+		return val, found, err
 	}
 
-	// Then, check SST files from level 0 to highest level
-	val, found, err := e.levels.Get(key, 0)
+	e.sstMu.RLock()
+	val, found, err = e._sst_get(key, 0)
+	e.sstMu.RUnlock()
+
+	return val, found, err
+}
+
+// Get retrieves a value by key
+func (e *Engine) _mem_get(key string) (string, bool, error) {
+	if e.closed {
+		return "", false, ErrEngineClosed
+	}
+
+	// First, check memtable (current + frozen)
+	value, found, err := e.memTable.Get(key, 0) // Read all versions
+	return value, found, err
+}
+
+func (e *Engine) _sst_get(key string, txnID uint64) (string, bool, error) {
+	if e.closed {
+		return "", false, ErrEngineClosed
+	}
+
+	val, found, err := e.levels.Get(key, txnID)
 	if err != nil {
 		return "", false, err
 	}
@@ -297,6 +329,7 @@ func (e *Engine) Get(key string) (string, bool, error) {
 		return "", false, nil
 	}
 	return val, found, nil
+
 }
 
 // Delete marks a key as deleted
@@ -305,19 +338,16 @@ func (e *Engine) Delete(key string) error {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	txnID := atomic.AddUint64(&e.nextTxnID, 1)
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
 
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
+
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+
 	}
 
-	err := e.memTable.Delete(key, txnID)
+	err := e._delete(key, txnID)
 	if err != nil {
 		return err
 	}
@@ -329,16 +359,26 @@ func (e *Engine) Delete(key string) error {
 	return nil
 }
 
+func (e *Engine) _delete(key string, txnID uint64) error {
+	if e.closed {
+		return ErrEngineClosed
+	}
+
+	err := e.memTable.Delete(key, txnID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // PutBatch inserts or updates multiple key-value pairs atomically
 func (e *Engine) PutBatch(kvs []memtable.KeyValue) error {
 	if e.closed {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	txnID := atomic.AddUint64(&e.nextTxnID, 1)
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
 
 	// Estimate size needed
 	estimatedSize := 0
@@ -348,9 +388,9 @@ func (e *Engine) PutBatch(kvs []memtable.KeyValue) error {
 
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()+estimatedSize) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
+
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+
 	}
 
 	err := e.memTable.PutBatch(kvs, txnID)
@@ -371,10 +411,7 @@ func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
 		return nil, ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
+	defer atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
 
 	results := make([]memtable.GetResult, len(keys))
 
@@ -424,9 +461,6 @@ func (e *Engine) NewIterator() iterator.Iterator {
 		return iterator.NewEmptyIterator()
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	// Create merge iterator combining memtable and all SST levels
 	iterators := make([]iterator.Iterator, 0)
 
@@ -475,7 +509,7 @@ func (e *Engine) doFlush() error {
 	}
 
 	// Build SST from flush result
-	sstID := atomic.AddUint64(&e.nextSSTID, 1) - 1
+	sstID := atomic.AddUint64(&e.metadata.NextSSTID, 1) - 1
 	sstPath := e.fileManager.GetSSTPath(sstID, 0) // Level 0
 
 	builder := sst.NewSSTBuilder(e.config.GetBlockSize(), true) // Enable bloom filter
@@ -556,12 +590,12 @@ func (e *Engine) compactionWorker() {
 		default:
 			// Check if compaction is needed
 			if e.levels.NeedsCompaction() {
-				e.compactMu.Lock()
+				e.sstMu.Lock()
 				if err := e.doCompaction(); err != nil {
 					// Log error but continue
 					fmt.Printf("Background compaction error: %v\n", err)
 				}
-				e.compactMu.Unlock()
+				e.sstMu.Unlock()
 			}
 
 			// Sleep for a longer time before checking again
@@ -582,7 +616,7 @@ func (e *Engine) doCompaction() error {
 		return nil // No compaction needed
 	}
 
-	return e.levels.ExecuteCompaction(task, e.nextSSTID, &e.nextSSTID)
+	return e.levels.ExecuteCompaction(task, e.metadata.NextSSTID, &e.metadata.NextSSTID)
 }
 
 // ForceCompaction forces a compaction of the specified level
@@ -591,15 +625,15 @@ func (e *Engine) ForceCompaction(level int) error {
 		return ErrEngineClosed
 	}
 
-	e.compactMu.Lock()
-	defer e.compactMu.Unlock()
+	e.sstMu.Lock()
+	defer e.sstMu.Unlock()
 
 	task := e.levels.CreateCompactionTask(level)
 	if task == nil {
 		return nil // Nothing to compact
 	}
 
-	return e.levels.ExecuteCompaction(task, e.nextSSTID, &e.nextSSTID)
+	return e.levels.ExecuteCompaction(task, e.metadata.NextSSTID, &e.metadata.NextSSTID)
 }
 
 // GetStatistics returns engine statistics
@@ -626,16 +660,12 @@ func (e *Engine) GetMeta() *EngineMetadata {
 
 // GetLevelInfo returns information about all levels
 func (e *Engine) GetLevelInfo() []LevelInfo {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 
 	return e.levels.GetLevelInfo()
 }
 
 // GetWAL returns the WAL instance
 func (e *Engine) GetWAL() *wal.WAL {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	return e.wal
 }
 
@@ -645,14 +675,11 @@ func (e *Engine) PutWithTxn(key, value string, txnID uint64) error {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
+
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+
 	}
 
 	err := e.memTable.Put(key, value, txnID)
@@ -673,10 +700,7 @@ func (e *Engine) GetWithTxn(key string, txnID uint64) (string, bool, error) {
 		return "", false, ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	atomic.AddUint64(&e.stats.Reads, 1)
+	defer atomic.AddUint64(&e.stats.Reads, 1)
 
 	// First, check memtable (current + frozen) with transaction ID
 	value, found, err := e.memTable.Get(key, txnID)
@@ -697,14 +721,11 @@ func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
+
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+
 	}
 
 	err := e.memTable.Delete(key, txnID)
@@ -725,9 +746,6 @@ func (e *Engine) PutBatchWithTxn(kvs []memtable.KeyValue, txnID uint64) error {
 		return ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	// Estimate size needed
 	estimatedSize := 0
 	for _, kv := range kvs {
@@ -736,9 +754,9 @@ func (e *Engine) PutBatchWithTxn(kvs []memtable.KeyValue, txnID uint64) error {
 
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()+estimatedSize) >= e.config.GetPerMemSizeLimit() {
-		e.mu.RUnlock()
+
 		e.freezeMemTableIfNeeded()
-		e.mu.RLock()
+
 	}
 
 	err := e.memTable.PutBatch(kvs, txnID)
@@ -759,10 +777,7 @@ func (e *Engine) GetBatchWithTxn(keys []string, txnID uint64) ([]memtable.GetRes
 		return nil, ErrEngineClosed
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
+	defer atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
 
 	results := make([]memtable.GetResult, len(keys))
 
@@ -812,9 +827,6 @@ func (e *Engine) NewIteratorWithTxn(txnID uint64) iterator.Iterator {
 		return iterator.NewEmptyIterator()
 	}
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	// Create merge iterator combining memtable and all SST levels with transaction ID
 	iterators := make([]iterator.Iterator, 0)
 
@@ -831,9 +843,6 @@ func (e *Engine) NewIteratorWithTxn(txnID uint64) iterator.Iterator {
 
 // Close closes the engine and releases resources
 func (e *Engine) Close() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	if e.closed {
 		return nil
 	}
