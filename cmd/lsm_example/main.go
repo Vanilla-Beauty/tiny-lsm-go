@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
+	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/config"
 	"tiny-lsm-go/pkg/lsm"
-	"tiny-lsm-go/pkg/memtable"
 )
 
 func main() {
@@ -121,7 +121,7 @@ func demonstrateBatchOperations(engine *lsm.Engine) {
 	fmt.Println("------------------------")
 
 	// Batch put
-	batchData := []memtable.KeyValue{
+	batchData := []common.KVPair{
 		{Key: "grape", Value: "purple"},
 		{Key: "kiwi", Value: "green"},
 		{Key: "mango", Value: "orange"},
