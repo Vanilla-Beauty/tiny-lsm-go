@@ -34,6 +34,9 @@ type Engine struct {
 	// WAL management
 	wal *wal.WAL
 
+	// Metadata persistence
+	metadataFile string
+
 	// Synchronization
 	mu        sync.RWMutex
 	flushMu   sync.Mutex
@@ -44,35 +47,10 @@ type Engine struct {
 	wg     sync.WaitGroup
 
 	// Statistics
-	stats *EngineStats
+	stats *EngineStatistics
 
 	// State
 	closed bool
-}
-
-// EngineStats holds statistics for the LSM engine
-type EngineStats struct {
-	// Read/Write statistics
-	Reads   uint64
-	Writes  uint64
-	Deletes uint64
-
-	// Flush statistics
-	Flushes      uint64
-	FlushedBytes uint64
-
-	// Compaction statistics
-	Compactions    uint64
-	CompactedBytes uint64
-	CompactedFiles uint64
-
-	// Memory statistics
-	MemTableSize    uint64
-	FrozenTableSize uint64
-
-	// SST statistics
-	SSTFiles     uint64
-	TotalSSTSize uint64
 }
 
 // NewEngine creates a new LSM engine
@@ -113,23 +91,29 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 	}
 
 	engine := &Engine{
-		config:      cfg,
-		dataDir:     dataDir,
-		memTable:    mt,
-		blockCache:  blockCache,
-		fileManager: fileManager,
-		levels:      levels,
-		wal:         walInstance,
-		nextSSTID:   1,
-		nextTxnID:   1,
-		stopCh:      make(chan struct{}),
-		stats:       &EngineStats{},
-		closed:      false,
+		config:       cfg,
+		dataDir:      dataDir,
+		memTable:     mt,
+		blockCache:   blockCache,
+		fileManager:  fileManager,
+		levels:       levels,
+		wal:          walInstance,
+		nextSSTID:    0,
+		nextTxnID:    1,
+		stopCh:       make(chan struct{}),
+		stats:        &EngineStatistics{},
+		metadataFile: filepath.Join(dataDir, "metadata"),
+		closed:       false,
 	}
 
 	// Recover from existing data if any
 	if err := engine.recover(); err != nil {
 		return nil, fmt.Errorf("recovery failed: %w", err)
+	}
+
+	// Save initial metadata
+	if err := saveMetadata(engine); err != nil {
+		return nil, fmt.Errorf("failed to save initial metadata: %w", err)
 	}
 
 	// Start background workers
@@ -140,6 +124,10 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 
 // recover recovers the engine state from disk
 func (e *Engine) recover() error {
+	// Load metadata if exists
+	if err := loadMetadata(e); err != nil {
+		return fmt.Errorf("failed to load metadata: %w", err)
+	}
 	// First, recover SST files
 	if err := e.levels.LoadExistingSSTs(); err != nil {
 		return fmt.Errorf("failed to load existing SST files: %w", err)
@@ -514,6 +502,11 @@ func (e *Engine) doFlush() error {
 		return fmt.Errorf("failed to add SST to level manager: %w", err)
 	}
 
+	// Save metadata after updating nextSSTID
+	if err := saveMetadata(e); err != nil {
+		fmt.Printf("Warning: failed to save metadata after flush: %v\n", err)
+	}
+
 	// Update statistics
 	atomic.AddUint64(&e.stats.Flushes, 1)
 	atomic.AddUint64(&e.stats.FlushedBytes, uint64(newSST.Size()))
@@ -609,9 +602,9 @@ func (e *Engine) ForceCompaction(level int) error {
 	return e.levels.ExecuteCompaction(task, e.nextSSTID, &e.nextSSTID)
 }
 
-// GetStats returns engine statistics
-func (e *Engine) GetStats() EngineStats {
-	return EngineStats{
+// GetStatistics returns engine statistics
+func (e *Engine) GetStatistics() EngineStatistics {
+	return EngineStatistics{
 		Reads:           atomic.LoadUint64(&e.stats.Reads),
 		Writes:          atomic.LoadUint64(&e.stats.Writes),
 		Deletes:         atomic.LoadUint64(&e.stats.Deletes),
@@ -625,6 +618,10 @@ func (e *Engine) GetStats() EngineStats {
 		SSTFiles:        e.levels.GetTotalSSTCount(),
 		TotalSSTSize:    e.levels.GetTotalSSTSize(),
 	}
+}
+
+func (e *Engine) GetMeta() *EngineMetadata {
+	return readMetadata(e)
 }
 
 // GetLevelInfo returns information about all levels
@@ -852,6 +849,11 @@ func (e *Engine) Close() error {
 		if err := e.doFlush(); err != nil {
 			fmt.Printf("Final flush error during shutdown: %v\n", err)
 		}
+	}
+
+	// Save metadata before shutdown
+	if err := saveMetadata(e); err != nil {
+		fmt.Printf("Warning: failed to save metadata during shutdown: %v\n", err)
 	}
 
 	// Close WAL

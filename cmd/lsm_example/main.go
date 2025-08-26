@@ -122,11 +122,11 @@ func demonstrateBatchOperations(engine *lsm.Engine) {
 
 	// Batch put
 	batchData := []memtable.KeyValue{
-		{"grape", "purple"},
-		{"kiwi", "green"},
-		{"mango", "orange"},
-		{"orange", "orange"},
-		{"pear", "yellow"},
+		{Key: "grape", Value: "purple"},
+		{Key: "kiwi", Value: "green"},
+		{Key: "mango", Value: "orange"},
+		{Key: "orange", Value: "orange"},
+		{Key: "pear", Value: "yellow"},
 	}
 
 	fmt.Println("Batch putting key-value pairs:")
@@ -188,7 +188,7 @@ func demonstrateFlushAndCompaction(engine *lsm.Engine) {
 	fmt.Println("\nLevel information:")
 	for _, level := range levels {
 		if level.NumFiles > 0 {
-			fmt.Printf("  Level %d: %d files, %.2f KB total\n", 
+			fmt.Printf("  Level %d: %d files, %.2f KB total\n",
 				level.Level, level.NumFiles, float64(level.TotalSize)/1024.0)
 		}
 	}
@@ -211,11 +211,11 @@ func demonstrateIteration(engine *lsm.Engine) {
 		fmt.Printf("  %s -> %s\n", iter.Key(), iter.Value())
 		count++
 	}
-	
+
 	if iter.Valid() {
 		fmt.Printf("  ... (showing first 10 entries)\n")
 	}
-	
+
 	// Count total entries
 	totalCount := 0
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
@@ -228,7 +228,7 @@ func showStatistics(engine *lsm.Engine) {
 	fmt.Println("\n📊 Engine Statistics")
 	fmt.Println("-------------------")
 
-	stats := engine.GetStats()
+	stats := engine.GetStatistics()
 	fmt.Printf("Reads: %d\n", stats.Reads)
 	fmt.Printf("Writes: %d\n", stats.Writes)
 	fmt.Printf("Deletes: %d\n", stats.Deletes)
@@ -245,8 +245,8 @@ func showStatistics(engine *lsm.Engine) {
 	fmt.Println("\nLevel breakdown:")
 	for _, level := range levels {
 		if level.NumFiles > 0 {
-			fmt.Printf("  Level %d: %d files, %.2f KB (%.1f%% full)\n", 
-				level.Level, level.NumFiles, 
+			fmt.Printf("  Level %d: %d files, %.2f KB (%.1f%% full)\n",
+				level.Level, level.NumFiles,
 				float64(level.TotalSize)/1024.0,
 				float64(level.TotalSize)/float64(level.MaxSize)*100.0)
 		}

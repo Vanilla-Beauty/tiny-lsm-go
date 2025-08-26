@@ -78,7 +78,7 @@ func TestPersistence(t *testing.T) {
 
 	kvs := make(map[string]string)
 	del_kvs := make(map[string]string)
-
+	var metaData *EngineMetadata
 	{
 		engine, err := NewEngine(cfg, tempDir)
 		require.NoError(t, err)
@@ -104,12 +104,18 @@ func TestPersistence(t *testing.T) {
 		}
 
 		engine.Close()
+		metaData = engine.GetMeta()
 	}
 
 	// Reopen engine and verify data
 	engine, err := NewEngine(cfg, tempDir)
 	require.NoError(t, err)
 	defer engine.Close()
+
+	NewMetaData := engine.GetMeta()
+
+	assert.Equal(t, metaData.NextSSTID, NewMetaData.NextSSTID)
+	assert.Equal(t, metaData.NextTxnID, NewMetaData.NextTxnID)
 
 	// Verify exist data
 	for key, expectedValue := range kvs {
