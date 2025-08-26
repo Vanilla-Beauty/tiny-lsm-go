@@ -80,7 +80,3 @@ func loadMetadata(e *Engine) error {
 
 	return nil
 }
-
-func readMetadata(e *Engine) *EngineMetadata {
-	return e.metadata
-}

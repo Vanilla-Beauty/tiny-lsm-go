@@ -1,66 +1,27 @@
 package lsm
 
 import (
-	"tiny-lsm-go/pkg/iterator"
+	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/wal"
 )
 
-// TxnEngine wraps the LSM engine to provide transaction support
-type TxnEngine struct {
-	engine  *Engine
-	manager *TransactionManager
-}
-
-// NewTxnEngine creates a new transactional engine wrapper
-func NewTxnEngine(engine *Engine, config *TransactionConfig) *TxnEngine {
-	manager := NewTransactionManager(engine, config)
-	
-	return &TxnEngine{
-		engine:  engine,
-		manager: manager,
-	}
-}
-
 // GetManager returns the transaction manager
-func (te *TxnEngine) GetManager() *TransactionManager {
-	return te.manager
-}
-
-// GetEngine returns the underlying LSM engine
-func (te *TxnEngine) GetEngine() *Engine {
-	return te.engine
+func (te *Engine) GetManager() *TransactionManager {
+	return te.txnManager
 }
 
 // Begin starts a new transaction
-func (te *TxnEngine) Begin() (*Transaction, error) {
-	return te.manager.Begin()
+func (te *Engine) Begin() (*Transaction, error) {
+	return te.txnManager.Begin()
 }
 
 // BeginWithIsolation starts a new transaction with specified isolation level
-func (te *TxnEngine) BeginWithIsolation(isolation IsolationLevel) (*Transaction, error) {
-	return te.manager.BeginWithIsolation(isolation)
-}
-
-// Put inserts a key-value pair using transaction context
-func (te *TxnEngine) Put(txn *Transaction, key, value string) error {
-	return te.putWithTxn(txn, key, value)
-}
-
-// Get retrieves a value by key using transaction context
-func (te *TxnEngine) Get(txn *Transaction, key string) (string, bool, error) {
-	return te.getWithTxn(txn, key)
-}
-
-// Delete marks a key as deleted using transaction context
-func (te *TxnEngine) Delete(txn *Transaction, key string) error {
-	return te.deleteWithTxn(txn, key)
+func (te *Engine) BeginWithIsolation(isolation IsolationLevel) (*Transaction, error) {
+	return te.txnManager.BeginWithIsolation(isolation)
 }
 
 // putWithTxn implements transaction-aware put operation based on isolation level
-func (te *TxnEngine) putWithTxn(txn *Transaction, key, value string) error {
-	txn.mu.Lock()
-	defer txn.mu.Unlock()
-
+func (te *Engine) PutWithTxn(txn *Transaction, key, value string) error {
 	if txn.state != TxnActive {
 		return ErrTransactionNotActive
 	}
@@ -72,7 +33,7 @@ func (te *TxnEngine) putWithTxn(txn *Transaction, key, value string) error {
 	case ReadUncommitted:
 		// READ_UNCOMMITTED: Write directly to database
 		// Save previous value for rollback
-		prevValue, exists, err := te.engine.GetWithTxn(key, 0) // Get without transaction filtering
+		prevValue, exists, err := te.GetWithTxnID(key, 0) // Get without transaction filtering
 		if err != nil {
 			return err
 		}
@@ -89,7 +50,7 @@ func (te *TxnEngine) putWithTxn(txn *Transaction, key, value string) error {
 			}
 		}
 
-		return te.engine.PutWithTxn(key, value, txn.id)
+		return te.PutWithTxnID(key, value, txn.id)
 
 	default:
 		// Other isolation levels: Store in temporary map
@@ -98,11 +59,8 @@ func (te *TxnEngine) putWithTxn(txn *Transaction, key, value string) error {
 	}
 }
 
-// getWithTxn implements transaction-aware get operation based on isolation level  
-func (te *TxnEngine) getWithTxn(txn *Transaction, key string) (string, bool, error) {
-	txn.mu.Lock()
-	defer txn.mu.Unlock()
-
+// getWithTxn implements transaction-aware get operation based on isolation level
+func (te *Engine) GetWithTxn(txn *Transaction, key string) (string, bool, error) {
 	if txn.state != TxnActive {
 		return "", false, ErrTransactionNotActive
 	}
@@ -119,11 +77,11 @@ func (te *TxnEngine) getWithTxn(txn *Transaction, key string) (string, bool, err
 	switch txn.isolation {
 	case ReadUncommitted:
 		// READ_UNCOMMITTED: Read latest value without transaction filtering
-		return te.engine.GetWithTxn(key, 0)
+		return te.GetWithTxnID(key, 0)
 
 	case ReadCommitted:
 		// READ_COMMITTED: Read with transaction filtering
-		return te.engine.GetWithTxn(key, txn.id)
+		return te.GetWithTxnID(key, txn.id)
 
 	case RepeatableRead, Serializable:
 		// REPEATABLE_READ/SERIALIZABLE: Check read history first
@@ -132,7 +90,7 @@ func (te *TxnEngine) getWithTxn(txn *Transaction, key string) (string, bool, err
 		}
 
 		// First time reading this key, save the result
-		value, exists, err := te.engine.GetWithTxn(key, txn.id)
+		value, exists, err := te.GetWithTxnID(key, txn.id)
 		if err != nil {
 			return "", false, err
 		}
@@ -151,7 +109,7 @@ func (te *TxnEngine) getWithTxn(txn *Transaction, key string) (string, bool, err
 }
 
 // deleteWithTxn implements transaction-aware delete operation based on isolation level
-func (te *TxnEngine) deleteWithTxn(txn *Transaction, key string) error {
+func (te *Engine) deleteWithTxn(txn *Transaction, key string) error {
 	txn.mu.Lock()
 	defer txn.mu.Unlock()
 
@@ -166,7 +124,7 @@ func (te *TxnEngine) deleteWithTxn(txn *Transaction, key string) error {
 	case ReadUncommitted:
 		// READ_UNCOMMITTED: Delete directly from database
 		// Save previous value for rollback
-		prevValue, exists, err := te.engine.GetWithTxn(key, 0)
+		prevValue, exists, err := te.GetWithTxnID(key, 0)
 		if err != nil {
 			return err
 		}
@@ -183,7 +141,7 @@ func (te *TxnEngine) deleteWithTxn(txn *Transaction, key string) error {
 			}
 		}
 
-		return te.engine.DeleteWithTxn(key, txn.id)
+		return te.DeleteWithTxn(key, txn.id)
 
 	default:
 		// Other isolation levels: Store deletion mark in temporary map
@@ -193,20 +151,19 @@ func (te *TxnEngine) deleteWithTxn(txn *Transaction, key string) error {
 }
 
 // PutBatch inserts multiple key-value pairs using transaction context
-func (te *TxnEngine) PutBatch(txn *Transaction, kvs []KVPair) error {
-	for _, kv := range kvs {
-		if err := te.putWithTxn(txn, kv.Key, kv.Value); err != nil {
-			return err
-		}
+func (te *Engine) PutBatchWithTxn(txn *Transaction, kvs []common.KVPair) error {
+	if err := te.PutBatchWithTxnID(kvs, txn.id); err != nil {
+		return err
+
 	}
 	return nil
 }
 
 // GetBatch retrieves multiple values by keys using transaction context
-func (te *TxnEngine) GetBatch(txn *Transaction, keys []string) (map[string]string, error) {
+func (te *Engine) GetBatchWithTxn(txn *Transaction, keys []string) (map[string]string, error) {
 	results := make(map[string]string)
 	for _, key := range keys {
-		value, found, err := te.getWithTxn(txn, key)
+		value, found, err := te.GetWithTxnID(key, txn.id)
 		if err != nil {
 			return nil, err
 		}
@@ -218,59 +175,11 @@ func (te *TxnEngine) GetBatch(txn *Transaction, keys []string) (map[string]strin
 }
 
 // DeleteBatch marks multiple keys as deleted using transaction context
-func (te *TxnEngine) DeleteBatch(txn *Transaction, keys []string) error {
+func (te *Engine) DeleteBatch(txn *Transaction, keys []string) error {
 	for _, key := range keys {
 		if err := te.deleteWithTxn(txn, key); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// NewIteratorWithTxn creates a new iterator with transaction ID
-func (te *TxnEngine) NewIteratorWithTxn(txnID uint64) (TransactionIterator, error) {
-	iter := te.engine.NewIteratorWithTxn(txnID)
-	return &TxnIteratorWrapper{iter: iter}, nil
-}
-
-// TxnIteratorWrapper wraps a regular iterator to implement TransactionIterator
-type TxnIteratorWrapper struct {
-	iter iterator.Iterator
-}
-
-func (w *TxnIteratorWrapper) Valid() bool {
-	return w.iter.Valid()
-}
-
-func (w *TxnIteratorWrapper) Key() string {
-	return w.iter.Key()
-}
-
-func (w *TxnIteratorWrapper) Value() string {
-	return w.iter.Value()
-}
-
-func (w *TxnIteratorWrapper) Next() {
-	w.iter.Next()
-}
-
-func (w *TxnIteratorWrapper) Seek(key string) {
-	w.iter.Seek(key)
-}
-
-func (w *TxnIteratorWrapper) SeekToFirst() {
-	w.iter.SeekToFirst()
-}
-
-func (w *TxnIteratorWrapper) SeekToLast() {
-	w.iter.SeekToLast()
-}
-
-func (w *TxnIteratorWrapper) Close() {
-	w.iter.Close()
-}
-
-// Close closes the transaction engine and its components
-func (te *TxnEngine) Close() error {
-	return te.engine.Close()
 }

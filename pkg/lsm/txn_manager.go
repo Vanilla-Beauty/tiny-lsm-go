@@ -1,11 +1,16 @@
 package lsm
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/wal"
 )
 
@@ -60,7 +65,6 @@ type TransactionManager struct {
 	committedTxns map[uint64]*Transaction
 	mu            sync.RWMutex
 	config        *TransactionConfig
-	persistence   *TransactionPersistence // Transaction state persistence
 }
 
 // TransactionConfig holds transaction manager configuration
@@ -98,35 +102,12 @@ func NewTransactionManager(engine *Engine, config *TransactionConfig) *Transacti
 		config:        config,
 	}
 
-	// Start cleanup goroutine
-	go mgr.cleanupWorker()
+	mgr.loadTxnStatus()
+
+	// Start sync goroutine
+	go mgr.synchronize()
 
 	return mgr
-}
-
-// NewTransactionManagerWithPersistence creates a new transaction manager with persistence support
-func NewTransactionManagerWithPersistence(engine *Engine, config *TransactionConfig, dataDir string) (*TransactionManager, error) {
-	if config == nil {
-		config = DefaultTransactionConfig()
-	}
-
-	mgr := &TransactionManager{
-		engine:        engine,
-		activeTxns:    make(map[uint64]*Transaction),
-		committedTxns: make(map[uint64]*Transaction),
-		config:        config,
-		persistence:   NewTransactionPersistence(dataDir),
-	}
-
-	// Try to recover previous transaction state
-	if err := mgr.persistence.RecoverTransactionState(mgr); err != nil {
-		return nil, err
-	}
-
-	// Start cleanup goroutine
-	go mgr.cleanupWorker()
-
-	return mgr, nil
 }
 
 // Begin starts a new transaction with default isolation level
@@ -201,27 +182,57 @@ func (m *TransactionManager) GetNextTxnID() uint64 {
 }
 
 // cleanupWorker runs periodically to clean up old committed transactions
-func (m *TransactionManager) cleanupWorker() {
+func (m *TransactionManager) synchronize() {
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		m.cleanupOldTransactions()
+		m.syncTxnStatus()
 	}
 }
 
-// cleanupOldTransactions removes old committed transactions from memory
-func (m *TransactionManager) cleanupOldTransactions() {
+func (m *TransactionManager) updateFlushedTxn(txnID uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cutoff := time.Now().Add(-m.config.CleanupInterval * 2)
+	// Remove flushed transactions
+	delete(m.committedTxns, txnID)
+}
 
-	for txnID, txn := range m.committedTxns {
-		if txn.commitTime.Before(cutoff) {
-			delete(m.committedTxns, txnID)
-		}
+func (m *TransactionManager) syncTxnStatus() error {
+	data, err := json.MarshalIndent(m.activeTxns, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal active transactions: %v", err)
+		return err
 	}
+
+	filePath := filepath.Join(m.engine.dataDir, common.CommittedTxnFile)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write committed transactions file: %w", err)
+	}
+	return nil
+}
+
+func (m *TransactionManager) loadTxnStatus() error {
+	data, err := os.ReadFile(filepath.Join(m.engine.dataDir, common.CommittedTxnFile))
+	if err != nil {
+		return fmt.Errorf("failed to read committed transactions file: %w", err)
+	}
+	var records map[uint64]*Transaction
+	if err := json.Unmarshal(data, &records); err != nil {
+		return fmt.Errorf("failed to unmarshal committed transactions: %w", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.committedTxns = records
+	return nil
+}
+
+func (m *TransactionManager) needRepay(txnID uint64) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, exist := m.committedTxns[txnID]
+	return exist
 }
 
 // ID returns the transaction ID
@@ -397,12 +408,6 @@ type RollbackRecord struct {
 	Exists bool
 }
 
-// KVPair represents a key-value pair for batch operations
-type KVPair struct {
-	Key   string
-	Value string
-}
-
 // detectConflicts checks for write conflicts for REPEATABLE_READ and SERIALIZABLE isolation levels
 func (t *Transaction) detectConflicts() error {
 	if t.isolation != RepeatableRead && t.isolation != Serializable {
@@ -412,7 +417,7 @@ func (t *Transaction) detectConflicts() error {
 	// Check each key in tempMap for conflicts
 	for key := range t.tempMap {
 		// Check if a later transaction has modified this key
-		_, exists, err := t.manager.engine.GetWithTxn(key, 0) // Get without transaction filtering
+		_, exists, err := t.manager.engine.GetWithTxnID(key, 0) // Get without transaction filtering
 		if err != nil {
 			return err
 		}
@@ -447,11 +452,16 @@ func (t *Transaction) applyChanges() error {
 			}
 		} else {
 			// Regular put operation
-			if err := t.manager.engine.PutWithTxn(key, value, t.id); err != nil {
+			if err := t.manager.engine.PutWithTxnID(key, value, t.id); err != nil {
 				return err
 			}
 		}
 	}
+	// add a marker to denote end of transaction
+	if err := t.manager.engine.PutWithTxnID("", "", t.id); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -465,7 +475,7 @@ func (t *Transaction) rollbackChanges() error {
 	for key, record := range t.rollbackMap {
 		if record.Exists {
 			// Restore previous value
-			if err := t.manager.engine.PutWithTxn(key, record.Value, record.TxnID); err != nil {
+			if err := t.manager.engine.PutWithTxnID(key, record.Value, record.TxnID); err != nil {
 				return err
 			}
 		} else {
@@ -478,22 +488,6 @@ func (t *Transaction) rollbackChanges() error {
 	return nil
 }
 
-// TransactionIterator extends the basic iterator interface for transactions
-type TransactionIterator interface {
-	// Valid returns true if the iterator is pointing to a valid entry
-	Valid() bool
-	// Key returns the key of the current entry
-	Key() string
-	// Value returns the value of the current entry
-	Value() string
-	// Next advances the iterator to the next entry
-	Next()
-	// Seek positions the iterator at the first entry with key >= target
-	Seek(key string)
-	// SeekToFirst positions the iterator at the first entry
-	SeekToFirst()
-	// SeekToLast positions the iterator at the last entry
-	SeekToLast()
-	// Close releases any resources held by the iterator
-	Close()
+func (t *Transaction) GetTxnID() uint64 {
+	return t.id
 }

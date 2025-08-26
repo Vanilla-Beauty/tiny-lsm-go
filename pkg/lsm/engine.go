@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tiny-lsm-go/pkg/cache"
+	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/config"
 	"tiny-lsm-go/pkg/iterator"
 	"tiny-lsm-go/pkg/memtable"
@@ -38,7 +39,6 @@ type Engine struct {
 
 	// Synchronization
 	flushMu sync.Mutex
-	sstMu   sync.RWMutex
 
 	// Background workers
 	stopCh chan struct{}
@@ -47,8 +47,19 @@ type Engine struct {
 	// Statistics
 	stats *EngineStatistics
 
+	txnManager *TransactionManager
+
 	// State
 	closed bool
+}
+
+func (e *Engine) initTxnManager(config *TransactionConfig) error {
+	if config == nil {
+		config = DefaultTransactionConfig()
+	}
+	manager := NewTransactionManager(e, config)
+	e.txnManager = manager
+	return nil
 }
 
 // NewEngine creates a new LSM engine
@@ -107,6 +118,8 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 		closed:       false,
 	}
 
+	engine.initTxnManager(nil)
+
 	// Recover from existing data if any
 	if err := engine.recover(); err != nil {
 		return nil, fmt.Errorf("recovery failed: %w", err)
@@ -160,20 +173,16 @@ func (e *Engine) recoverFromWAL() error {
 	fmt.Printf("🔄 Recovering %d transactions from WAL...\n", len(recordsByTxn))
 
 	// Process each transaction
-	var maxTxnID uint64
 	for txnID, records := range recordsByTxn {
-		if txnID > maxTxnID {
-			maxTxnID = txnID
+		if e.txnManager.needRepay(txnID) {
+			if err := e.replayTransaction(txnID, records); err != nil {
+				fmt.Printf("Warning: failed to replay transaction %d: %v\n", txnID, err)
+			}
 		}
 
 		if err := e.replayTransaction(txnID, records); err != nil {
 			fmt.Printf("Warning: failed to replay transaction %d: %v\n", txnID, err)
 		}
-	}
-
-	// Update next transaction ID to be higher than any recovered ID
-	if maxTxnID >= e.metadata.NextTxnID {
-		e.metadata.NextTxnID = maxTxnID + 1
 	}
 
 	fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
@@ -240,13 +249,17 @@ func (e *Engine) startBackgroundWorkers() {
 
 // Put inserts or updates a key-value pair
 func (e *Engine) Put(key, value string) error {
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
+	return e.PutWithTxnID(key, value, txnID)
+}
+
+// PutWithTxn inserts or updates a key-value pair with transaction ID
+func (e *Engine) PutWithTxnID(key, value string, txnID uint64) error {
 	if e.closed {
 		return ErrEngineClosed
 	}
 
-	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
-
-	err := e._put(key, value, txnID)
+	err := e.memTable.Put(key, value, txnID)
 	if err != nil {
 		return err
 	}
@@ -263,139 +276,26 @@ func (e *Engine) Put(key, value string) error {
 	return nil
 }
 
-// need lock outside
-func (e *Engine) _put(key, value string, txnID uint64) error {
-	if e.closed {
-		return ErrEngineClosed
-	}
-
-	err := e.memTable.Put(key, value, txnID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Get retrieves a value by key
-func (e *Engine) Get(key string) (string, bool, error) {
-	if e.closed {
-		return "", false, ErrEngineClosed
-	}
-
-	atomic.AddUint64(&e.stats.Reads, 1)
-
-	val, found, err := e._mem_get(key)
-	if err != nil {
-		return "", false, err
-	}
-	if found {
-
-		if val == "" {
-			return "", false, nil
-		}
-		return val, found, err
-	}
-
-	e.sstMu.RLock()
-	val, found, err = e._sst_get(key, 0)
-	e.sstMu.RUnlock()
-
-	return val, found, err
-}
-
-// Get retrieves a value by key
-func (e *Engine) _mem_get(key string) (string, bool, error) {
-	if e.closed {
-		return "", false, ErrEngineClosed
-	}
-
-	// First, check memtable (current + frozen)
-	value, found, err := e.memTable.Get(key, 0) // Read all versions
-	return value, found, err
-}
-
-func (e *Engine) _sst_get(key string, txnID uint64) (string, bool, error) {
-	if e.closed {
-		return "", false, ErrEngineClosed
-	}
-
-	val, found, err := e.levels.Get(key, txnID)
-	if err != nil {
-		return "", false, err
-	}
-	if found && val == "" {
-		// found in phisycal semantic, but not found in logical semantic
-		return "", false, nil
-	}
-	return val, found, nil
-
-}
-
-// Delete marks a key as deleted
-func (e *Engine) Delete(key string) error {
-	if e.closed {
-		return ErrEngineClosed
-	}
-
-	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
-
-	// Check if we need to freeze the current memtable
-	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-
-		e.freezeMemTableIfNeeded()
-
-	}
-
-	err := e._delete(key, txnID)
-	if err != nil {
-		return err
-	}
-
-	atomic.AddUint64(&e.stats.Deletes, 1)
-	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
-	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
-
-	return nil
-}
-
-func (e *Engine) _delete(key string, txnID uint64) error {
-	if e.closed {
-		return ErrEngineClosed
-	}
-
-	err := e.memTable.Delete(key, txnID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // PutBatch inserts or updates multiple key-value pairs atomically
-func (e *Engine) PutBatch(kvs []memtable.KeyValue) error {
+func (e *Engine) PutBatch(kvs []common.KVPair) error {
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
+	return e.PutBatchWithTxnID(kvs, txnID)
+}
+
+// PutBatchWithTxn inserts or updates multiple key-value pairs with transaction ID
+func (e *Engine) PutBatchWithTxnID(kvs []common.KVPair, txnID uint64) error {
 	if e.closed {
 		return ErrEngineClosed
-	}
-
-	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
-
-	// Estimate size needed
-	estimatedSize := 0
-	for _, kv := range kvs {
-		estimatedSize += len(kv.Key) + len(kv.Value) + 16 // Key + Value + overhead
-	}
-
-	// Check if we need to freeze the current memtable
-	if int64(e.memTable.GetCurrentSize()+estimatedSize) >= e.config.GetPerMemSizeLimit() {
-
-		e.freezeMemTableIfNeeded()
-
 	}
 
 	err := e.memTable.PutBatch(kvs, txnID)
 	if err != nil {
 		return err
+	}
+
+	// Check if we need to freeze the current memtable
+	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
+		e.freezeMemTableIfNeeded()
 	}
 
 	atomic.AddUint64(&e.stats.Writes, uint64(len(kvs)))
@@ -405,8 +305,46 @@ func (e *Engine) PutBatch(kvs []memtable.KeyValue) error {
 	return nil
 }
 
+// Get retrieves a value by key
+func (e *Engine) Get(key string) (string, bool, error) {
+	return e.GetWithTxnID(key, 0)
+}
+
+// GetWithTxnID retrieves a value by key with transaction ID for snapshot isolation
+func (e *Engine) GetWithTxnID(key string, txnID uint64) (string, bool, error) {
+	if e.closed {
+		return "", false, ErrEngineClosed
+	}
+
+	atomic.AddUint64(&e.stats.Reads, 1)
+
+	// First, check memtable (current + frozen) with transaction ID
+	value, found, err := e.memTable.Get(key, txnID)
+	if err != nil {
+		return "", false, err
+	}
+	if found {
+		return value, true, nil
+	}
+
+	// Then, check SST files from level 0 to highest level with transaction ID
+	val, found, err := e.levels.Get(key, txnID)
+	if err != nil {
+		return "", false, err
+	}
+	if found && val == "" {
+		return "", false, nil
+	}
+	return val, found, nil
+}
+
 // GetBatch retrieves multiple values by keys
 func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
+	return e.GetBatchWithTxnID(keys, 0)
+}
+
+// GetBatchWithTxn retrieves multiple values by keys with transaction ID
+func (e *Engine) GetBatchWithTxnID(keys []string, txnID uint64) ([]memtable.GetResult, error) {
 	if e.closed {
 		return nil, ErrEngineClosed
 	}
@@ -415,8 +353,8 @@ func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
 
 	results := make([]memtable.GetResult, len(keys))
 
-	// First try to get all keys from memtable
-	memResults, err := e.memTable.GetBatch(keys, 0)
+	// First try to get all keys from memtable with transaction ID
+	memResults, err := e.memTable.GetBatch(keys, txnID)
 	if err != nil {
 		return nil, err
 	}
@@ -430,9 +368,9 @@ func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
 		}
 	}
 
-	// Get missing keys from SST files
+	// Get missing keys from SST files with transaction ID
 	if len(missingKeys) > 0 {
-		sstResults, err := e.levels.GetBatch(missingKeys, 0)
+		sstResults, err := e.levels.GetBatch(missingKeys, txnID)
 		if err != nil {
 			return nil, err
 		}
@@ -453,6 +391,34 @@ func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
 	}
 
 	return results, nil
+}
+
+func (e *Engine) Delete(key string) error {
+	txnID := atomic.AddUint64(&e.metadata.NextTxnID, 1) - 1
+	return e.DeleteWithTxnID(key, txnID)
+}
+
+// Delete marks a key as deleted
+func (e *Engine) DeleteWithTxnID(key string, txnID uint64) error {
+	if e.closed {
+		return ErrEngineClosed
+	}
+
+	// Check if we need to freeze the current memtable
+	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
+		e.freezeMemTableIfNeeded()
+	}
+
+	err := e.memTable.Delete(key, txnID)
+	if err != nil {
+		return err
+	}
+
+	atomic.AddUint64(&e.stats.Deletes, 1)
+	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
+	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
+
+	return nil
 }
 
 // NewIterator creates a new iterator for scanning the database
@@ -516,6 +482,11 @@ func (e *Engine) doFlush() error {
 
 	// Add entries from flush result
 	for _, entry := range flushResult.Entries {
+		if entry.Key == "" && entry.Value == "" {
+			e.txnManager.updateFlushedTxn(entry.TxnID)
+			// skip the transaction end marker
+			continue
+		}
 		err := builder.Add(entry.Key, entry.Value, entry.TxnID)
 		if err != nil {
 			return fmt.Errorf("failed to add entry to SST builder: %w", err)
@@ -590,12 +561,10 @@ func (e *Engine) compactionWorker() {
 		default:
 			// Check if compaction is needed
 			if e.levels.NeedsCompaction() {
-				e.sstMu.Lock()
 				if err := e.doCompaction(); err != nil {
 					// Log error but continue
 					fmt.Printf("Background compaction error: %v\n", err)
 				}
-				e.sstMu.Unlock()
 			}
 
 			// Sleep for a longer time before checking again
@@ -625,9 +594,6 @@ func (e *Engine) ForceCompaction(level int) error {
 		return ErrEngineClosed
 	}
 
-	e.sstMu.Lock()
-	defer e.sstMu.Unlock()
-
 	task := e.levels.CreateCompactionTask(level)
 	if task == nil {
 		return nil // Nothing to compact
@@ -655,7 +621,7 @@ func (e *Engine) GetStatistics() EngineStatistics {
 }
 
 func (e *Engine) GetMeta() *EngineMetadata {
-	return readMetadata(e)
+	return e.metadata
 }
 
 // GetLevelInfo returns information about all levels
@@ -669,52 +635,6 @@ func (e *Engine) GetWAL() *wal.WAL {
 	return e.wal
 }
 
-// PutWithTxn inserts or updates a key-value pair with transaction ID
-func (e *Engine) PutWithTxn(key, value string, txnID uint64) error {
-	if e.closed {
-		return ErrEngineClosed
-	}
-
-	// Check if we need to freeze the current memtable
-	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-
-		e.freezeMemTableIfNeeded()
-
-	}
-
-	err := e.memTable.Put(key, value, txnID)
-	if err != nil {
-		return err
-	}
-
-	atomic.AddUint64(&e.stats.Writes, 1)
-	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
-	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
-
-	return nil
-}
-
-// GetWithTxn retrieves a value by key with transaction ID for snapshot isolation
-func (e *Engine) GetWithTxn(key string, txnID uint64) (string, bool, error) {
-	if e.closed {
-		return "", false, ErrEngineClosed
-	}
-
-	defer atomic.AddUint64(&e.stats.Reads, 1)
-
-	// First, check memtable (current + frozen) with transaction ID
-	value, found, err := e.memTable.Get(key, txnID)
-	if err != nil {
-		return "", false, err
-	}
-	if found {
-		return value, true, nil
-	}
-
-	// Then, check SST files from level 0 to highest level with transaction ID
-	return e.levels.Get(key, txnID)
-}
-
 // DeleteWithTxn marks a key as deleted with transaction ID
 func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 	if e.closed {
@@ -723,9 +643,7 @@ func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 
 	// Check if we need to freeze the current memtable
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
-
 		e.freezeMemTableIfNeeded()
-
 	}
 
 	err := e.memTable.Delete(key, txnID)
@@ -740,89 +658,8 @@ func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 	return nil
 }
 
-// PutBatchWithTxn inserts or updates multiple key-value pairs with transaction ID
-func (e *Engine) PutBatchWithTxn(kvs []memtable.KeyValue, txnID uint64) error {
-	if e.closed {
-		return ErrEngineClosed
-	}
-
-	// Estimate size needed
-	estimatedSize := 0
-	for _, kv := range kvs {
-		estimatedSize += len(kv.Key) + len(kv.Value) + 16 // Key + Value + overhead
-	}
-
-	// Check if we need to freeze the current memtable
-	if int64(e.memTable.GetCurrentSize()+estimatedSize) >= e.config.GetPerMemSizeLimit() {
-
-		e.freezeMemTableIfNeeded()
-
-	}
-
-	err := e.memTable.PutBatch(kvs, txnID)
-	if err != nil {
-		return err
-	}
-
-	atomic.AddUint64(&e.stats.Writes, uint64(len(kvs)))
-	atomic.StoreUint64(&e.stats.MemTableSize, uint64(e.memTable.GetCurrentSize()))
-	atomic.StoreUint64(&e.stats.FrozenTableSize, uint64(e.memTable.GetFrozenSize()))
-
-	return nil
-}
-
-// GetBatchWithTxn retrieves multiple values by keys with transaction ID
-func (e *Engine) GetBatchWithTxn(keys []string, txnID uint64) ([]memtable.GetResult, error) {
-	if e.closed {
-		return nil, ErrEngineClosed
-	}
-
-	defer atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
-
-	results := make([]memtable.GetResult, len(keys))
-
-	// First try to get all keys from memtable with transaction ID
-	memResults, err := e.memTable.GetBatch(keys, txnID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Copy memtable results and identify missing keys
-	missingKeys := make([]string, 0)
-	for i, result := range memResults {
-		results[i] = result
-		if !result.Found {
-			missingKeys = append(missingKeys, result.Key)
-		}
-	}
-
-	// Get missing keys from SST files with transaction ID
-	if len(missingKeys) > 0 {
-		sstResults, err := e.levels.GetBatch(missingKeys, txnID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Merge SST results back into final results
-		sstResultMap := make(map[string]memtable.GetResult)
-		for _, result := range sstResults {
-			sstResultMap[result.Key] = result
-		}
-
-		for i := range results {
-			if !results[i].Found {
-				if sstResult, found := sstResultMap[results[i].Key]; found {
-					results[i] = sstResult
-				}
-			}
-		}
-	}
-
-	return results, nil
-}
-
 // NewIteratorWithTxn creates a new iterator with transaction ID for snapshot isolation
-func (e *Engine) NewIteratorWithTxn(txnID uint64) iterator.Iterator {
+func (e *Engine) NewIteratorWithTxnID(txnID uint64) iterator.Iterator {
 	if e.closed {
 		return iterator.NewEmptyIterator()
 	}

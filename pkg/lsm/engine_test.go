@@ -121,9 +121,6 @@ func TestPersistence(t *testing.T) {
 	for key, expectedValue := range kvs {
 		value, found, err := engine.Get(key)
 		require.NoError(t, err)
-		if !found {
-			t.Log("Missing key:", key)
-		}
 		assert.True(t, found)
 		assert.Equal(t, expectedValue, value)
 	}
@@ -132,6 +129,9 @@ func TestPersistence(t *testing.T) {
 		value, found, err := engine.Get(key)
 		require.NoError(t, err)
 		assert.False(t, found)
+		if !found {
+			t.Log("Correctly missing deleted key:", key)
+		}
 		assert.Equal(t, "", value)
 	}
 
@@ -175,7 +175,7 @@ func TestMVCC(t *testing.T) {
 	// key00-key19 first with txnID=1
 	for i := 0; i < 20; i++ {
 		key := "key" + fmt.Sprintf("%02d", i) // Zero-padded for consistent ordering
-		err := engine.PutWithTxn(key, "tranc1", 1)
+		err := engine.PutWithTxnID(key, "tranc1", 1)
 		require.NoError(t, err)
 	}
 
@@ -186,14 +186,14 @@ func TestMVCC(t *testing.T) {
 	// key00-key09 again with txnID=2
 	for i := 0; i < 10; i++ {
 		key := "key" + fmt.Sprintf("%02d", i) // Zero-padded for consistent ordering
-		err := engine.PutWithTxn(key, "tranc2", 2)
+		err := engine.PutWithTxnID(key, "tranc2", 2)
 		require.NoError(t, err)
 	}
 
 	// When querying with txnID=1, should only see tranc1 values
 	for i := 0; i < 20; i++ {
 		key := "key" + fmt.Sprintf("%02d", i) // Zero-padded for consistent ordering
-		value, found, err := engine.GetWithTxn(key, 1)
+		value, found, err := engine.GetWithTxnID(key, 1)
 		require.NoError(t, err)
 		assert.True(t, found)
 		assert.Equal(t, "tranc1", value)
@@ -202,7 +202,7 @@ func TestMVCC(t *testing.T) {
 	// When querying with txnID=2, should see tranc2 for first 10 keys and tranc1 for the rest
 	for i := 0; i < 20; i++ {
 		key := "key" + fmt.Sprintf("%02d", i) // Zero-padded for consistent ordering
-		value, found, err := engine.GetWithTxn(key, 2)
+		value, found, err := engine.GetWithTxnID(key, 2)
 		require.NoError(t, err)
 		assert.True(t, found)
 

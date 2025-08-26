@@ -3,6 +3,7 @@ package memtable
 import (
 	"fmt"
 	"testing"
+	"tiny-lsm-go/pkg/common"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,7 +98,7 @@ func TestMemTableBatchOperations(t *testing.T) {
 	mt := New()
 
 	// Test batch put
-	kvs := []KeyValue{
+	kvs := []common.KVPair{
 		{"key1", "value1"},
 		{"key2", "value2"},
 		{"key3", "value3"},

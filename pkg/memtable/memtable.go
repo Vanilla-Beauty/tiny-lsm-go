@@ -2,6 +2,7 @@ package memtable
 
 import (
 	"sync"
+	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/config"
 	"tiny-lsm-go/pkg/iterator"
 	"tiny-lsm-go/pkg/skiplist"
@@ -12,13 +13,13 @@ import (
 type MemTable struct {
 	// Current active table that accepts writes
 	currentTable *skiplist.SkipList
-	
+
 	// Frozen tables that are immutable and waiting to be flushed
 	frozenTables []*skiplist.SkipList
-	
+
 	// Size tracking
 	frozenBytes int // Total bytes in frozen tables
-	
+
 	// Mutexes for thread safety
 	currentMutex sync.RWMutex // Protects current table
 	frozenMutex  sync.RWMutex // Protects frozen tables
@@ -54,7 +55,7 @@ func (mt *MemTable) Put(key, value string, txnID uint64) error {
 }
 
 // PutBatch adds multiple key-value pairs in a single operation
-func (mt *MemTable) PutBatch(kvs []KeyValue, txnID uint64) error {
+func (mt *MemTable) PutBatch(kvs []common.KVPair, txnID uint64) error {
 	mt.currentMutex.Lock()
 	defer mt.currentMutex.Unlock()
 
@@ -128,7 +129,7 @@ func (mt *MemTable) Get(key string, txnID uint64) (string, bool, error) {
 		value := iter.Value()
 		isDeleted := iter.IsDeleted()
 		iter.Close()
-		
+
 		if isDeleted {
 			return "", false, nil // Key was deleted
 		}
@@ -147,7 +148,7 @@ func (mt *MemTable) Get(key string, txnID uint64) (string, bool, error) {
 			value := iter.Value()
 			isDeleted := iter.IsDeleted()
 			iter.Close()
-			
+
 			if isDeleted {
 				return "", false, nil // Key was deleted
 			}
@@ -220,10 +221,10 @@ func (mt *MemTable) GetBatch(keys []string, txnID uint64) ([]GetResult, error) {
 func (mt *MemTable) freezeCurrentTableLocked() {
 	// Move current table to front of frozen tables list
 	mt.frozenBytes += mt.currentTable.SizeBytes()
-	
+
 	// Add to beginning of slice (newest frozen table first)
 	mt.frozenTables = append([]*skiplist.SkipList{mt.currentTable}, mt.frozenTables...)
-	
+
 	// Create new current table
 	mt.currentTable = skiplist.New()
 }
@@ -285,12 +286,6 @@ func (mt *MemTable) Clear() {
 // NewIterator creates a new iterator over all entries in the MemTable
 func (mt *MemTable) NewIterator(txnID uint64) iterator.Iterator {
 	return NewMemTableIterator(mt, txnID)
-}
-
-// KeyValue represents a key-value pair
-type KeyValue struct {
-	Key   string
-	Value string
 }
 
 // GetResult represents the result of a Get operation
