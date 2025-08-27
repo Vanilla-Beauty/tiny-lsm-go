@@ -68,11 +68,6 @@ Thumbs.db
 logs/
 log/
 
-# Cache directories
-.cache/
-cache/
-*.cache
-
 # Environment variables
 .env
 .env.local
