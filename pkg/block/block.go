@@ -35,7 +35,7 @@ func NewBlockBuilder(blockSize int) *BlockBuilder {
 // Add adds a key-value entry to the block being built
 func (bb *BlockBuilder) Add(key, value string, txnID uint64, forceFlush bool) error {
 	// Calculate the size needed for this entry
-	entrySize := 8 + 8 + 1 + 2 + len(key) + 2 + len(value) // txnID + flags + keyLen + key + valueLen + value
+	entrySize := 8 + 2 + len(key) + 2 + len(value) // txnID + flags + keyLen + key + valueLen + value
 
 	// Check if adding this entry would exceed the block size
 	if !forceFlush && len(bb.data)+entrySize+len(bb.offsets)*2+2 > bb.blockSize && len(bb.offsets) > 0 {
