@@ -18,12 +18,12 @@ func TestFileManagerBasicOperations(t *testing.T) {
 
 	// Test GetSSTPath
 	sstPath := fm.GetSSTPath(1, 0)
-	expectedPath := filepath.Join(tempDir, "1_0.sst")
+	expectedPath := filepath.Join(tempDir, "00000001_0.sst")
 	assert.Equal(t, expectedPath, sstPath)
 
 	// Test different SST IDs and levels
 	sstPath2 := fm.GetSSTPath(123, 5)
-	expectedPath2 := filepath.Join(tempDir, "123_5.sst")
+	expectedPath2 := filepath.Join(tempDir, "00000123_5.sst")
 	assert.Equal(t, expectedPath2, sstPath2)
 }
 
@@ -294,7 +294,7 @@ func TestFileManagerConcurrentAccess(t *testing.T) {
 			for j := 0; j < filesPerGoroutine; j++ {
 				fileName := fmt.Sprintf("concurrent_%d_%d.txt", goroutineID, j)
 				data := []byte(fmt.Sprintf("data from goroutine %d, file %d", goroutineID, j))
-				
+
 				if err := fm.CreateFile(fileName, data); err != nil {
 					errors <- err
 					return
@@ -540,13 +540,13 @@ func BenchmarkFileManagerLargeFileOperations(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		fileName := fmt.Sprintf("large_bench_%d.dat", i)
-		
+
 		// Create large file
 		err := fm.CreateFile(fileName, largeData)
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		// Read it back
 		_, err = fm.ReadFile(fileName)
 		if err != nil {

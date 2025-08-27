@@ -351,7 +351,6 @@ func (builder *SSTBuilder) Add(key, value string, txnID uint64) error {
 	if builder.firstKey == "" {
 		builder.firstKey = key
 	}
-	builder.lastKey = key
 
 	// Update transaction ID range
 	if txnID < builder.minTxnID {
@@ -371,6 +370,7 @@ func (builder *SSTBuilder) Add(key, value string, txnID uint64) error {
 	// Try to add to current block
 	err := builder.blockBuilder.Add(key, value, txnID, forceFlush)
 	if err == nil {
+		builder.lastKey = key
 		return nil // Successfully added
 	}
 
