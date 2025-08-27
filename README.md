@@ -1,7 +1,7 @@
 # Tiny-LSM-Go
 
 <div align="center">
-  <img src="./doc/logo1-compact.png" alt="Tiny-LSM Logo" style="width: 100%; max-width: 400px;">
+  <img src="./doc/logo1-compact.png" alt="Tiny-LSM Logo" style="width: 100%; max-width: 300px;">
 </div>
 
 [![Go](https://img.shields.io/badge/Go-1.21+-blue)](https://golang.org)
