@@ -1,7 +1,7 @@
 # Tiny-LSM-Go
 
 <div align="center">
-  <img src="./doc/logo1-compact.png" alt="Tiny-LSM Logo" width="300">
+  <img src="./doc/logo1-compact.png" alt="Tiny-LSM Logo" style="width: 100%; max-width: 400px;">
 </div>
 
 [![Go](https://img.shields.io/badge/Go-1.21+-blue)](https://golang.org)
@@ -165,10 +165,9 @@ go test -bench=. ./...
 This is an educational project. Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## 📚 References
-
+- [Original Tiny-LSM C++ Implementation](https://github.com/Vanilla-Beauty/tiny-lsm)
 - [Mini-LSM Tutorial](https://skyzh.github.io/mini-lsm/)
 - [LevelDB](https://github.com/google/leveldb)
-- [Original Tiny-LSM C++ Implementation](https://github.com/Vanilla-Beauty/tiny-lsm)
 
 ## 📜 License
 
