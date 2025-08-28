@@ -50,7 +50,7 @@ func main() {
 	minTxnID, maxTxnID := sstFile.TxnRange()
 	fmt.Printf("Transaction ID Range: %d - %d\n", minTxnID, maxTxnID)
 
-	// 修复：通过读取文件footer获取metaOffset和bloomOffset
+	// Fix: Read file footer to get metaOffset and bloomOffset
 	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Printf("Error opening file for offset read: %v\n", err)
@@ -86,7 +86,7 @@ func main() {
 		fmt.Printf("Block %d:\n", i)
 		fmt.Printf("  First Key: %s\n", blk.FirstKey())
 		fmt.Printf("  Last Key: %s\n", blk.LastKey())
-		// Offset 信息无法直接从Block获取，需要从文件中读取
+		// Offset information cannot be directly obtained from Block, need to read from file
 		fmt.Println()
 	}
 

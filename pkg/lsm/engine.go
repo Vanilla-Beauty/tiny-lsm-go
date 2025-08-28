@@ -54,7 +54,7 @@ type Engine struct {
 
 	// State
 	closed                bool
-	flushAndCompactByHand bool
+	flushAndCompactByHand bool // during test, disable background flush and compact to make it easy to debug
 }
 
 func (e *Engine) initTxnManager(config *TransactionConfig) error {
@@ -685,7 +685,7 @@ func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 	return nil
 }
 
-// NewIteratorWithTxn creates a new iterator with transaction ID for snapshot isolation
+// NewIteratorWithTxnID creates a new iterator with transaction ID for snapshot isolation
 func (e *Engine) NewIteratorWithTxnID(txnID uint64) iterator.Iterator {
 	if e.closed {
 		return iterator.NewEmptyIterator()

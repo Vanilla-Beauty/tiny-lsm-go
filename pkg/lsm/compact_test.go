@@ -21,7 +21,7 @@ func TestBasicCompaction(t *testing.T) {
 	test_num := 1200
 	{
 		cfg := config.DefaultConfig()
-		cfg.LSM.Core.SSTLevelRatio = 4 // 4个SST后触发压缩
+		cfg.LSM.Core.SSTLevelRatio = 4 // 4 SSTs trigger compaction
 		cfg.LSM.Core.PerMemSizeLimit = 10400
 		engine, err := NewEngine(cfg, dir)
 		require.NoError(t, err)
@@ -32,8 +32,6 @@ func TestBasicCompaction(t *testing.T) {
 			key := "key" + fmt.Sprintf("%04d", i) // Zero-padded for consistent ordering, len=7
 			val := "val" + fmt.Sprintf("%04d", i) // Zero-padded for consistent ordering, len=7
 
-			// 每个 entry 的大小是 2+7+2+7+8=26 bytes
-			// 一个level0 的sst的大小是 400*26=10400 bytes
 			engine.Put(key, val)
 
 			if i == 0 {
@@ -44,15 +42,15 @@ func TestBasicCompaction(t *testing.T) {
 				engine.Delete(del_key)
 			}
 			if i%100 == 0 {
-				// totorce flush 12000/100=120 level-0 sst
+				// Force flush 12000/100=120 level-0 SSTs
 				engine.Flush()
 			}
 			if i%400 == 0 {
-				// force compact
+				// Force compact
 				engine.ForceCompact()
 			}
 		}
-		// 循环只会到1199， 所以1190(1200-10)需要我们手动删除
+		// Loop only goes to 1199, so 1190 (1200-10) needs to be manually deleted
 		del_key := "key" + fmt.Sprintf("%04d", 1190) // Zero-padded for consistent ordering
 		engine.Delete(del_key)
 		engine.Flush()
