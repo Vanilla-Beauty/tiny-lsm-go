@@ -423,17 +423,56 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 		return nil
 	}
 
-	// Create iterators for input SSTs
-	inputIters := make([]iterator.Iterator, len(task.InputSSTs))
-	for i, sstFile := range task.InputSSTs {
-		inputIters[i] = sstFile.NewIterator(0) // Read all versions
+	// 1. Check if target level is full, recursively compact if needed
+	if lm.isLevelFull(task.OutputLevel) {
+		// Create compaction task for the target level
+		nextLevelTask := lm.CreateCompactionTask(task.OutputLevel)
+		if nextLevelTask != nil {
+			if err := lm.ExecuteCompaction(nextLevelTask, *nextSSTIDPtr, nextSSTIDPtr); err != nil {
+				return fmt.Errorf("failed to compact target level: %w", err)
+			}
+		}
 	}
 
-	// Create merge iterator
-	mergeIter := iterator.NewMergeIterator(inputIters)
-	defer mergeIter.Close()
+	// 2. Create iterator for source level (level x)
+	var itx iterator.Iterator
+	if task.Level == 0 {
+		// Level 0: SSTs may overlap, use merge iterator to sort them
+		inputIters := make([]iterator.Iterator, len(task.InputSSTs))
+		for i, sstFile := range task.InputSSTs {
+			inputIters[i] = sstFile.NewIterator(0) // Read all versions
+		}
+		itx = iterator.NewMergeIterator(inputIters)
+	} else {
+		// Level > 0: SSTs don't overlap, use concat iterator
+		inputIters := make([]iterator.Iterator, len(task.InputSSTs))
+		for i, sstFile := range task.InputSSTs {
+			inputIters[i] = sstFile.NewIterator(0) // Read all versions
+		}
+		itx = iterator.NewConcatIterator(inputIters)
+	}
+	defer itx.Close()
 
-	// Build new SSTs for the output level
+	// 3. Create iterator for target level (level y)
+	var ity iterator.Iterator
+	targetLevelSSTs := lm.levels[task.OutputLevel].SSTs
+	if len(targetLevelSSTs) > 0 {
+		targetIters := make([]iterator.Iterator, len(targetLevelSSTs))
+		for i, sstFile := range targetLevelSSTs {
+			targetIters[i] = sstFile.NewIterator(0) // Read all versions
+		}
+		ity = iterator.NewConcatIterator(targetIters)
+	} else {
+		// Empty target level
+		ity = iterator.NewEmptyIterator()
+	}
+	defer ity.Close()
+
+	// 4. Create select iterator to merge itx and ity
+	selectIter := iterator.NewSelectIterator([]iterator.Iterator{itx, ity})
+	defer selectIter.Close()
+
+	// 5. Build new SSTs for the output level
 	var outputSSTs []*sst.SST
 	builder := sst.NewSSTBuilder(lm.config.GetBlockSize(), true)
 
@@ -441,9 +480,9 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 	entriesInCurrentSST := 0
 	maxEntriesPerSST := 10000 // Configurable
 
-	for mergeIter.SeekToFirst(); mergeIter.Valid(); mergeIter.Next() {
+	for selectIter.SeekToFirst(); selectIter.Valid(); selectIter.Next() {
 		// Add entry to current SST
-		err := builder.Add(mergeIter.Key(), mergeIter.Value(), mergeIter.TxnID())
+		err := builder.Add(selectIter.Key(), selectIter.Value(), selectIter.TxnID())
 		if err != nil {
 			// Current SST is full, build it and start a new one
 			if entriesInCurrentSST > 0 {
@@ -467,7 +506,7 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 			}
 
 			// Try adding to new SST
-			err = builder.Add(mergeIter.Key(), mergeIter.Value(), mergeIter.TxnID())
+			err = builder.Add(selectIter.Key(), selectIter.Value(), selectIter.TxnID())
 			if err != nil {
 				// Clean up
 				for _, sst := range outputSSTs {
@@ -517,7 +556,7 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 		*nextSSTIDPtr++
 	}
 
-	// Replace input SSTs with output SSTs
+	// 6. Replace input SSTs with output SSTs
 	// Remove input SSTs from source level
 	inputLevelSSTs := make([]*sst.SST, 0)
 	for _, existing := range lm.levels[task.Level].SSTs {
@@ -534,9 +573,8 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 	}
 	lm.levels[task.Level].SSTs = inputLevelSSTs
 
-	// Add output SSTs to target level
-	lm.levels[task.OutputLevel].SSTs = append(lm.levels[task.OutputLevel].SSTs, outputSSTs...)
-	lm.sortLevel(task.OutputLevel)
+	// Remove target level SSTs and add output SSTs
+	lm.levels[task.OutputLevel].SSTs = outputSSTs
 
 	// Clean up input SST files
 	for _, sstFile := range task.InputSSTs {
@@ -544,7 +582,23 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 		sstFile.Delete()
 	}
 
+	// Clean up target level SST files
+	for _, sstFile := range targetLevelSSTs {
+		sstFile.Close()
+		sstFile.Delete()
+	}
+
 	return nil
+}
+
+// isLevelFull checks if a level has reached its maximum size
+func (lm *LevelManager) isLevelFull(level int) bool {
+	if level < 0 || level >= len(lm.levels) {
+		return false
+	}
+
+	levelSize := lm.getLevelSize(level)
+	return levelSize >= lm.levels[level].MaxSize
 }
 
 // Close closes all SST files

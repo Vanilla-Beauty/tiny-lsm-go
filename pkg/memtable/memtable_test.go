@@ -99,9 +99,9 @@ func TestMemTableBatchOperations(t *testing.T) {
 
 	// Test batch put
 	kvs := []common.KVPair{
-		{"key1", "value1"},
-		{"key2", "value2"},
-		{"key3", "value3"},
+		{Key: "key1", Value: "value1"},
+		{Key: "key2", Value: "value2"},
+		{Key: "key3", Value: "value3"},
 	}
 
 	err := mt.PutBatch(kvs, 1)

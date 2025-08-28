@@ -194,11 +194,7 @@ func (mt *MemTable) ShouldFlush() bool {
 
 	// Check if total size is too large
 	totalSizeLimit := mt.getTotalSizeLimit()
-	if stats.TotalSize > totalSizeLimit {
-		return true
-	}
-
-	return false
+	return stats.TotalSize > totalSizeLimit
 }
 
 // getTotalSizeLimit returns the total size limit for all MemTables
