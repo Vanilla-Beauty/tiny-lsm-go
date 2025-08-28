@@ -114,12 +114,12 @@ func (iter *SkipListIterator) Next() {
 }
 
 // Seek positions the iterator at the first entry with key >= target
-func (iter *SkipListIterator) Seek(key string) {
+func (iter *SkipListIterator) Seek(key string) bool {
 	iter.mu.Lock()
 	defer iter.mu.Unlock()
 
 	if iter.closed {
-		return
+		return false
 	}
 
 	current := iter.sl.header
@@ -137,6 +137,12 @@ func (iter *SkipListIterator) Seek(key string) {
 	for iter.current != nil && iter.txnID > 0 && iter.current.TxnID() > iter.txnID {
 		iter.current = iter.current.Next()
 	}
+
+	// Return true if we found an exact match
+	if iter.current != nil && iter.current.CompareKey(key) == 0 {
+		return true
+	}
+	return false
 }
 
 // SeekToFirst positions the iterator at the first entry

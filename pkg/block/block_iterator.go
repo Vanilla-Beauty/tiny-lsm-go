@@ -144,13 +144,19 @@ func (iter *BlockIterator) seekToKey(key string) int {
 }
 
 // Seek positions the iterator at the first entry with key >= target
-func (iter *BlockIterator) Seek(key string) {
+func (iter *BlockIterator) Seek(key string) bool {
 	if iter.closed {
-		return
+		return false
 	}
 
 	// Find the first entry >= key in aggregated entries
 	iter.index = iter.seekToKey(key)
+
+	// Return true if we found an exact match
+	if iter.Valid() && iter.aggregated[iter.index].Key == key {
+		return true
+	}
+	return false
 }
 
 // SeekToFirst positions the iterator at the first entry

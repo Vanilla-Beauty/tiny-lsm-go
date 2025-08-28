@@ -611,7 +611,7 @@ func (iter *SSTIterator) moveToNextBlock() {
 }
 
 // Seek positions the iterator at the first entry with key >= target
-func (iter *SSTIterator) Seek(key string) {
+func (iter *SSTIterator) Seek(key string) bool {
 	blockIdx := iter.sst.FindBlockIndex(key)
 	if blockIdx == -1 {
 		// Key not found in any block
@@ -620,7 +620,7 @@ func (iter *SSTIterator) Seek(key string) {
 			iter.blockIter = nil
 		}
 		iter.blockIdx = iter.sst.NumBlocks()
-		return
+		return false
 	}
 
 	iter.blockIdx = blockIdx
@@ -631,16 +631,18 @@ func (iter *SSTIterator) Seek(key string) {
 	blk, err := iter.sst.ReadBlock(iter.blockIdx)
 	if err != nil {
 		iter.blockIter = nil
-		return
+		return false
 	}
 
 	iter.blockIter = blk.NewIterator()
-	iter.blockIter.Seek(key)
+	found := iter.blockIter.Seek(key)
 
 	// If not found in this block, move to next block
 	if !iter.blockIter.Valid() {
 		iter.moveToNextBlock()
 	}
+
+	return found
 }
 
 // SeekToFirst positions the iterator at the first entry

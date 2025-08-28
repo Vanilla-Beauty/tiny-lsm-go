@@ -19,8 +19,8 @@ type HeapItem struct {
 // IteratorHeap implements heap.Interface for HeapItem
 type IteratorHeap []*HeapItem
 
-func (h IteratorHeap) Len() int           { return len(h) }
-func (h IteratorHeap) Less(i, j int) bool { 
+func (h IteratorHeap) Len() int { return len(h) }
+func (h IteratorHeap) Less(i, j int) bool {
 	// Compare by key first
 	if h[i].Iterator.Key() != h[j].Iterator.Key() {
 		return h[i].Iterator.Key() < h[j].Iterator.Key()
@@ -28,7 +28,7 @@ func (h IteratorHeap) Less(i, j int) bool {
 	// If keys are equal, prefer earlier iterator (lower index)
 	return h[i].Index < h[j].Index
 }
-func (h IteratorHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h IteratorHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
 func (h *IteratorHeap) Push(x interface{}) {
 	*h = append(*h, x.(*HeapItem))
@@ -128,10 +128,10 @@ func (mi *MergeIterator) Next() {
 
 	// Skip duplicates of the same key (keep only the newest version)
 	currentKey := mi.current.Iterator.Key()
-	
+
 	// Advance the current iterator
 	mi.current.Iterator.Next()
-	
+
 	// Re-add to heap if still valid
 	if mi.current.Iterator.Valid() {
 		heap.Push(mi.heap, mi.current)
@@ -143,13 +143,13 @@ func (mi *MergeIterator) Next() {
 		if !next.Iterator.Valid() {
 			continue
 		}
-		
+
 		if next.Iterator.Key() != currentKey {
 			// Different key, this is our new current
 			mi.current = next
 			return
 		}
-		
+
 		// Same key, skip it and advance the iterator
 		next.Iterator.Next()
 		if next.Iterator.Valid() {
@@ -170,7 +170,7 @@ func (mi *MergeIterator) advance() {
 
 	// Get the iterator with the smallest key
 	mi.current = heap.Pop(mi.heap).(*HeapItem)
-	
+
 	// Ensure the current iterator is valid
 	for mi.current != nil && !mi.current.Iterator.Valid() {
 		if mi.heap.Len() == 0 {
@@ -182,14 +182,14 @@ func (mi *MergeIterator) advance() {
 }
 
 // Seek positions the iterator at the first entry with key >= target
-func (mi *MergeIterator) Seek(key string) {
+func (mi *MergeIterator) Seek(key string) bool {
 	if mi.closed {
-		return
+		return false
 	}
 
 	// Clear the heap and seek all iterators
 	*mi.heap = (*mi.heap)[:0]
-	
+
 	for i, iter := range mi.iterators {
 		if iter != nil {
 			iter.Seek(key)
@@ -205,6 +205,8 @@ func (mi *MergeIterator) Seek(key string) {
 
 	heap.Init(mi.heap)
 	mi.advance()
+
+	return mi.Valid() && mi.current.Iterator.Key() == key
 }
 
 // SeekToFirst positions the iterator at the first entry
@@ -215,7 +217,7 @@ func (mi *MergeIterator) SeekToFirst() {
 
 	// Clear the heap and seek all iterators to first
 	*mi.heap = (*mi.heap)[:0]
-	
+
 	for i, iter := range mi.iterators {
 		if iter != nil {
 			iter.SeekToFirst()
@@ -249,7 +251,7 @@ func (mi *MergeIterator) SeekToLast() {
 	for mi.Valid() {
 		mi.Next()
 	}
-	
+
 	// This is a simplified implementation
 	// A full implementation would be more complex
 }
@@ -266,14 +268,14 @@ func (mi *MergeIterator) Close() {
 	}
 
 	mi.closed = true
-	
+
 	// Close all underlying iterators
 	for _, iter := range mi.iterators {
 		if iter != nil {
 			iter.Close()
 		}
 	}
-	
+
 	mi.iterators = nil
 	mi.heap = nil
 	mi.current = nil

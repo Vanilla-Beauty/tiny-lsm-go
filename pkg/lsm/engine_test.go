@@ -147,7 +147,7 @@ func TestLargeScaleOperations(t *testing.T) {
 	defer cleanup()
 
 	// Insert enough data to trigger multiple flushes
-	// ... existing code ...
+
 	// Insert enough data to trigger multiple flushes
 	data := make(map[string]string)
 	for i := 0; i < 1000; i++ {
@@ -157,7 +157,7 @@ func TestLargeScaleOperations(t *testing.T) {
 		require.NoError(t, err)
 		data[key] = value
 	}
-	// ... existing code ...
+
 	// Verify all data
 	for key, expectedValue := range data {
 		value, found, err := engine.Get(key)

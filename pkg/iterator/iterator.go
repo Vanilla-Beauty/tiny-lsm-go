@@ -15,10 +15,12 @@ const (
 	SSTIteratorType
 	// HeapIteratorType for heap-based merge iterators
 	HeapIteratorType
-	// TwoMergeIteratorType for two-way merge iterators
-	TwoMergeIteratorType
 	// MergeIteratorType for general merge iterators
 	MergeIteratorType
+	// SelectIteratorType for select iterators
+	SelectIteratorType
+	// ConcatIteratorType for concat iterators
+	ConcatIteratorType
 )
 
 // Entry represents a key-value entry with transaction ID
@@ -54,7 +56,7 @@ type Iterator interface {
 	Next()
 
 	// Seek positions the iterator at the first entry with key >= target
-	Seek(key string)
+	Seek(key string) bool
 
 	// SeekToFirst positions the iterator at the first entry
 	SeekToFirst()
@@ -91,7 +93,7 @@ func (e *EmptyIterator) Value() string         { return "" }
 func (e *EmptyIterator) TxnID() uint64         { return 0 }
 func (e *EmptyIterator) IsDeleted() bool       { return false }
 func (e *EmptyIterator) Next()                 {}
-func (e *EmptyIterator) Seek(key string)       {}
+func (e *EmptyIterator) Seek(key string) bool  { return false }
 func (e *EmptyIterator) SeekToFirst()          {}
 func (e *EmptyIterator) SeekToLast()           {}
 func (e *EmptyIterator) GetType() IteratorType { return SkipListIteratorType }

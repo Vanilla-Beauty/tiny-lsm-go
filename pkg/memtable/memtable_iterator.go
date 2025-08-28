@@ -172,9 +172,9 @@ func (iter *MemTableIterator) Next() {
 }
 
 // Seek positions the iterator at the first entry with key >= target
-func (iter *MemTableIterator) Seek(key string) {
+func (iter *MemTableIterator) Seek(key string) bool {
 	if iter.closed {
-		return
+		return false
 	}
 
 	// Close all current iterators and re-initialize
@@ -184,6 +184,12 @@ func (iter *MemTableIterator) Seek(key string) {
 	// Re-initialize iterators and seek to target key
 	iter.seekToKey(key)
 	iter.advance()
+
+	// Return true if we found an exact match
+	if iter.Valid() && iter.current.Key == key {
+		return true
+	}
+	return false
 }
 
 // seekToKey initializes iterators and seeks them to the target key

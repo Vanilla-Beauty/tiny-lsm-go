@@ -41,8 +41,10 @@ type Engine struct {
 	flushMu sync.Mutex
 
 	// Background workers
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	stopCh    chan struct{}
+	compactCh chan struct{}
+
+	wg sync.WaitGroup
 
 	// Statistics
 	stats *EngineStatistics
@@ -112,7 +114,9 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 			NextTxnID:       1,
 			GlobalReadTxnID: 1,
 		},
-		stopCh:       make(chan struct{}),
+		stopCh:    make(chan struct{}),
+		compactCh: make(chan struct{}),
+
 		stats:        &EngineStatistics{},
 		metadataFile: filepath.Join(dataDir, "metadata"),
 		closed:       false,
@@ -558,8 +562,14 @@ func (e *Engine) compactionWorker() {
 		select {
 		case <-e.stopCh:
 			return
+		case <-e.compactCh:
+			// Manual compaction trigger
+			if err := e.doCompaction(); err != nil {
+				// Log error but continue
+				fmt.Printf("Manual compaction error: %v\n", err)
+			}
 		default:
-			// Check if compaction is needed
+			// Check if automatic compaction is needed
 			if e.levels.NeedsCompaction() {
 				if err := e.doCompaction(); err != nil {
 					// Log error but continue
@@ -571,10 +581,26 @@ func (e *Engine) compactionWorker() {
 			select {
 			case <-e.stopCh:
 				return
+			case <-e.compactCh:
+				// Manual compaction trigger
+				if err := e.doCompaction(); err != nil {
+					// Log error but continue
+					fmt.Printf("Manual compaction error: %v\n", err)
+				}
 			case <-utils.After(5000): // 5 seconds
 				continue
 			}
 		}
+	}
+}
+
+func (e *Engine) ForceCompact() {
+	if e.closed {
+		return
+	}
+	select {
+	case e.compactCh <- struct{}{}:
+	default:
 	}
 }
 
