@@ -11,12 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestEngine(t *testing.T) (*Engine, func()) {
-	tempDir := t.TempDir()
-
+func getCustomTestConfig() *config.Config {
 	cfg := config.DefaultConfig()
 	cfg.LSM.Core.PerMemSizeLimit = 1024 * 1024 // 1MB for testing
 	cfg.LSM.Core.BlockSize = 4096              // 4KB blocks
+	return cfg
+}
+
+func setupTestEngine(t *testing.T, cfg *config.Config) (*Engine, func()) {
+	tempDir := t.TempDir()
+
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
 
 	engine, err := NewEngine(cfg, tempDir)
 	if err != nil {
@@ -32,7 +39,7 @@ func setupTestEngine(t *testing.T) (*Engine, func()) {
 }
 
 func TestBasicOperations(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupTestEngine(t, getCustomTestConfig())
 	defer cleanup()
 
 	// Test Put and Get
@@ -143,7 +150,7 @@ func TestPersistence(t *testing.T) {
 }
 
 func TestLargeScaleOperations(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupTestEngine(t, getCustomTestConfig())
 	defer cleanup()
 
 	// Insert enough data to trigger multiple flushes
@@ -168,7 +175,8 @@ func TestLargeScaleOperations(t *testing.T) {
 }
 
 func TestMVCC(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupTestEngine(t, getCustomTestConfig())
+	engine.flushAndCompactByHand = true
 	defer cleanup()
 
 	// Insert keys with different transaction IDs

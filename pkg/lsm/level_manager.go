@@ -48,7 +48,6 @@ type CompactionTask struct {
 	Level       int
 	InputSSTs   []*sst.SST
 	OutputLevel int
-	TotalSize   int64
 }
 
 // NewLevelManager creates a new level manager
@@ -57,7 +56,7 @@ func NewLevelManager(cfg *config.Config, fileManager *utils.FileManager, blockCa
 	levels := make([]Level, maxLevels)
 
 	// Initialize levels with size limits
-	baseSize := int64(64 * 1024 * 1024) // 64MB for level 0
+	baseSize := cfg.GetPerMemSizeLimit()
 	ratio := int64(cfg.GetSSTLevelRatio())
 
 	for i := 0; i < maxLevels; i++ {
@@ -159,8 +158,15 @@ func (lm *LevelManager) AddSST(level int, sstFile *sst.SST) error {
 		return fmt.Errorf("invalid level: %d", level)
 	}
 
-	lm.levels[level].SSTs = append(lm.levels[level].SSTs, sstFile)
-	lm.sortLevel(level)
+	if level == 0 {
+		// For level 0, newer SSTs should be at the beginning
+		// Prepend the new SST to the slice
+		lm.levels[level].SSTs = append([]*sst.SST{sstFile}, lm.levels[level].SSTs...)
+	} else {
+		// For other levels, append normally and sort
+		lm.levels[level].SSTs = append(lm.levels[level].SSTs, sstFile)
+		lm.sortLevel(level)
+	}
 
 	return nil
 }
@@ -384,13 +390,11 @@ func (lm *LevelManager) PickCompactionTask() *CompactionTask {
 
 	// Find the level that most needs compaction
 	for i := 0; i < len(lm.levels)-1; i++ {
-		levelSize := lm.getLevelSize(i)
-		if levelSize > lm.levels[i].MaxSize {
+		if len(lm.levels[i].SSTs) >= lm.config.GetSSTLevelRatio() {
 			return &CompactionTask{
 				Level:       i,
 				InputSSTs:   lm.levels[i].SSTs[:], // Copy slice
 				OutputLevel: i + 1,
-				TotalSize:   levelSize,
 			}
 		}
 	}
@@ -410,7 +414,6 @@ func (lm *LevelManager) CreateCompactionTask(level int) *CompactionTask {
 		Level:       level,
 		InputSSTs:   lm.levels[level].SSTs[:], // Copy slice
 		OutputLevel: level + 1,
-		TotalSize:   lm.getLevelSize(level),
 	}
 }
 
@@ -477,33 +480,31 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 	builder := sst.NewSSTBuilder(lm.config.GetBlockSize(), true)
 
 	currentSSTID := nextSSTID
-	entriesInCurrentSST := 0
-	maxEntriesPerSST := 10000 // Configurable
+	inputLevelDataSize := task.InputSSTs[len(task.InputSSTs)-1].MetaOffset()
+	// use the last SST's meta offset as total size
+	targetLevelSizeLimit := inputLevelDataSize * int64(lm.config.GetSSTLevelRatio())
 
 	for selectIter.SeekToFirst(); selectIter.Valid(); selectIter.Next() {
 		// Add entry to current SST
 		err := builder.Add(selectIter.Key(), selectIter.Value(), selectIter.TxnID())
 		if err != nil {
 			// Current SST is full, build it and start a new one
-			if entriesInCurrentSST > 0 {
-				sstPath := lm.fileManager.GetSSTPath(currentSSTID, task.OutputLevel)
-				newSST, buildErr := builder.Build(currentSSTID, sstPath, lm.blockCache)
-				if buildErr != nil {
-					// Clean up any built SSTs
-					for _, sst := range outputSSTs {
-						sst.Close()
-						sst.Delete()
-					}
-					return fmt.Errorf("failed to build SST during compaction: %w", buildErr)
+			sstPath := lm.fileManager.GetSSTPath(currentSSTID, task.OutputLevel)
+			newSST, buildErr := builder.Build(currentSSTID, sstPath, lm.blockCache)
+			if buildErr != nil {
+				// Clean up any built SSTs
+				for _, sst := range outputSSTs {
+					sst.Close()
+					sst.Delete()
 				}
-				outputSSTs = append(outputSSTs, newSST)
-
-				// Start new SST
-				*nextSSTIDPtr++
-				currentSSTID = *nextSSTIDPtr
-				builder = sst.NewSSTBuilder(lm.config.GetBlockSize(), true)
-				entriesInCurrentSST = 0
+				return fmt.Errorf("failed to build SST during compaction: %w", buildErr)
 			}
+			outputSSTs = append(outputSSTs, newSST)
+
+			// Start new SST
+			*nextSSTIDPtr++
+			currentSSTID = *nextSSTIDPtr
+			builder = sst.NewSSTBuilder(lm.config.GetBlockSize(), true)
 
 			// Try adding to new SST
 			err = builder.Add(selectIter.Key(), selectIter.Value(), selectIter.TxnID())
@@ -516,10 +517,9 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 				return fmt.Errorf("failed to add entry to new SST during compaction: %w", err)
 			}
 		}
-		entriesInCurrentSST++
 
 		// Check if we should start a new SST
-		if entriesInCurrentSST >= maxEntriesPerSST {
+		if int64(builder.GetDataSize()) >= targetLevelSizeLimit {
 			sstPath := lm.fileManager.GetSSTPath(currentSSTID, task.OutputLevel)
 			newSST, buildErr := builder.Build(currentSSTID, sstPath, lm.blockCache)
 			if buildErr != nil {
@@ -536,12 +536,11 @@ func (lm *LevelManager) ExecuteCompaction(task *CompactionTask, nextSSTID uint64
 			*nextSSTIDPtr++
 			currentSSTID = *nextSSTIDPtr
 			builder = sst.NewSSTBuilder(lm.config.GetBlockSize(), true)
-			entriesInCurrentSST = 0
 		}
 	}
 
 	// Build the final SST if it has entries
-	if entriesInCurrentSST > 0 {
+	if builder.GetDataSize() > 0 {
 		sstPath := lm.fileManager.GetSSTPath(currentSSTID, task.OutputLevel)
 		newSST, err := builder.Build(currentSSTID, sstPath, lm.blockCache)
 		if err != nil {
@@ -597,8 +596,7 @@ func (lm *LevelManager) isLevelFull(level int) bool {
 		return false
 	}
 
-	levelSize := lm.getLevelSize(level)
-	return levelSize >= lm.levels[level].MaxSize
+	return len(lm.levels[level].SSTs) >= lm.config.GetSSTLevelRatio()
 }
 
 // Close closes all SST files

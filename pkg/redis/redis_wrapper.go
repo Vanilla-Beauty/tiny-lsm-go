@@ -41,7 +41,8 @@ func (r *RedisWrapper) Close() error {
 func (r *RedisWrapper) FlushAll() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.engine.Flush()
+	r.engine.NoticeFlushCheck()
+	return nil
 }
 
 // Helper functions for key formatting
@@ -72,17 +73,17 @@ func (r *RedisWrapper) getFieldsFromHashValue(value string) []string {
 	if value == "" {
 		return nil
 	}
-	
+
 	prefix := r.config.GetRedisHashValuePrefix()
 	if !strings.HasPrefix(value, prefix) {
 		return nil
 	}
-	
+
 	fieldList := value[len(prefix):]
 	if fieldList == "" {
 		return nil
 	}
-	
+
 	separator := r.config.GetRedisFieldSeparator()
 	return strings.Split(fieldList, separator)
 }
@@ -127,12 +128,12 @@ func (r *RedisWrapper) isExpired(expireValue string) bool {
 	if expireValue == "" {
 		return false
 	}
-	
+
 	expireTime, err := strconv.ParseInt(expireValue, 10, 64)
 	if err != nil {
 		return false
 	}
-	
+
 	now := time.Now().Unix()
 	return now > expireTime
 }
@@ -150,7 +151,7 @@ func (r *RedisWrapper) expireCleanHash(key string) bool {
 	if err != nil || expireValue == nil {
 		return false
 	}
-	
+
 	if r.isExpired(*expireValue) {
 		// Clean up all hash fields
 		hashValue, err := r.getEngineValue(key)
@@ -165,7 +166,7 @@ func (r *RedisWrapper) expireCleanHash(key string) bool {
 		r.engine.Delete(expireKey)
 		return true
 	}
-	
+
 	return false
 }
 
@@ -176,13 +177,13 @@ func (r *RedisWrapper) expireCleanKey(key string) bool {
 	if err != nil || expireValue == nil {
 		return false
 	}
-	
+
 	if r.isExpired(*expireValue) {
 		r.engine.Delete(key)
 		r.engine.Delete(expireKey)
 		return true
 	}
-	
+
 	return false
 }
 
@@ -218,22 +219,22 @@ func (r *RedisWrapper) getEngineValue(key string) (*string, error) {
 func (r *RedisWrapper) scanPrefix(prefix string) []string {
 	iter := r.engine.NewIterator()
 	defer iter.Close()
-	
+
 	var results []string
 	iter.Seek(prefix)
-	
+
 	for iter.Valid() {
 		key := iter.Key()
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
-		
+
 		if !iter.IsDeleted() {
 			results = append(results, key)
 		}
-		
+
 		iter.Next()
 	}
-	
+
 	return results
 }

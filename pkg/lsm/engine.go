@@ -1,6 +1,7 @@
 package lsm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,8 +42,8 @@ type Engine struct {
 	flushMu sync.Mutex
 
 	// Background workers
-	stopCh    chan struct{}
-	compactCh chan struct{}
+	stopCh  chan struct{}
+	checkCh chan struct{}
 
 	wg sync.WaitGroup
 
@@ -52,7 +53,8 @@ type Engine struct {
 	txnManager *TransactionManager
 
 	// State
-	closed bool
+	closed                bool
+	flushAndCompactByHand bool
 }
 
 func (e *Engine) initTxnManager(config *TransactionConfig) error {
@@ -114,8 +116,7 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 			NextTxnID:       1,
 			GlobalReadTxnID: 1,
 		},
-		stopCh:    make(chan struct{}),
-		compactCh: make(chan struct{}),
+		stopCh: make(chan struct{}),
 
 		stats:        &EngineStatistics{},
 		metadataFile: filepath.Join(dataDir, "metadata"),
@@ -461,6 +462,10 @@ func (e *Engine) Flush() error {
 		return ErrEngineClosed
 	}
 
+	if !e.flushAndCompactByHand {
+		return errors.New("Flush is disabled")
+	}
+
 	e.flushMu.Lock()
 	defer e.flushMu.Unlock()
 
@@ -528,11 +533,16 @@ func (e *Engine) doFlush() error {
 func (e *Engine) flushWorker() {
 	defer e.wg.Done()
 
+	if e.flushAndCompactByHand {
+		return
+	}
+
 	for {
 		select {
 		case <-e.stopCh:
 			return
-		default:
+		case <-e.checkCh:
+		case <-utils.After(200): // 200ms
 			// Check if we need to flush
 			if e.memTable.CanFlush() {
 				e.flushMu.Lock()
@@ -542,14 +552,6 @@ func (e *Engine) flushWorker() {
 				}
 				e.flushMu.Unlock()
 			}
-
-			// Sleep for a short time before checking again
-			select {
-			case <-e.stopCh:
-				return
-			case <-utils.After(100): // 100ms
-				continue
-			}
 		}
 	}
 }
@@ -558,17 +560,15 @@ func (e *Engine) flushWorker() {
 func (e *Engine) compactionWorker() {
 	defer e.wg.Done()
 
+	if e.flushAndCompactByHand {
+		return
+	}
+
 	for {
 		select {
 		case <-e.stopCh:
 			return
-		case <-e.compactCh:
-			// Manual compaction trigger
-			if err := e.doCompaction(); err != nil {
-				// Log error but continue
-				fmt.Printf("Manual compaction error: %v\n", err)
-			}
-		default:
+		case <-utils.After(5000): // 5 seconds
 			// Check if automatic compaction is needed
 			if e.levels.NeedsCompaction() {
 				if err := e.doCompaction(); err != nil {
@@ -576,21 +576,17 @@ func (e *Engine) compactionWorker() {
 					fmt.Printf("Background compaction error: %v\n", err)
 				}
 			}
-
-			// Sleep for a longer time before checking again
-			select {
-			case <-e.stopCh:
-				return
-			case <-e.compactCh:
-				// Manual compaction trigger
-				if err := e.doCompaction(); err != nil {
-					// Log error but continue
-					fmt.Printf("Manual compaction error: %v\n", err)
-				}
-			case <-utils.After(5000): // 5 seconds
-				continue
-			}
 		}
+	}
+}
+
+func (e *Engine) NoticeFlushCheck() {
+	if e.closed {
+		return
+	}
+	select {
+	case e.checkCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -598,9 +594,14 @@ func (e *Engine) ForceCompact() {
 	if e.closed {
 		return
 	}
-	select {
-	case e.compactCh <- struct{}{}:
-	default:
+
+	if !e.flushAndCompactByHand {
+		return
+	}
+	// Manual compaction trigger
+	if err := e.doCompaction(); err != nil {
+		// Log error but continue
+		fmt.Printf("Manual compaction error: %v\n", err)
 	}
 }
 

@@ -127,6 +127,10 @@ func (sst *SST) Close() error {
 	return nil
 }
 
+func (sst *SST) MetaOffset() int64 {
+	return int64(sst.metaOffset)
+}
+
 // ID returns the SST ID
 func (sst *SST) ID() uint64 {
 	return sst.sstID
@@ -345,6 +349,10 @@ func NewSSTBuilder(blockSize int, hasBloom bool) *SSTBuilder {
 	}
 }
 
+func (builder *SSTBuilder) GetDataSize() int {
+	return builder.blockBuilder.DataSize() + len(builder.data)
+}
+
 // Add adds a key-value pair to the SST
 func (builder *SSTBuilder) Add(key, value string, txnID uint64) error {
 	// Update first and last keys
@@ -412,27 +420,6 @@ func (builder *SSTBuilder) finishBlock() error {
 	builder.blockBuilder = block.NewBlockBuilder(builder.blockSize)
 
 	return nil
-}
-
-// EstimatedSize returns the estimated size of the SST being built
-func (builder *SSTBuilder) EstimatedSize() int {
-	size := len(builder.data)
-	size += builder.blockBuilder.EstimatedSize()
-
-	// Add estimated metadata size
-	for _, meta := range builder.metas {
-		size += meta.Size()
-	}
-	size += 8 // metadata header and checksum
-
-	// Add bloom filter size
-	if builder.bloomFilter != nil {
-		size += len(builder.bloomFilter.Serialize())
-	}
-
-	size += 24 // footer size
-
-	return size
 }
 
 // Build builds the SST file

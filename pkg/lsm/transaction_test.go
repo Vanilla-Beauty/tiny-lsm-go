@@ -6,7 +6,7 @@ import (
 )
 
 func setupTestTxnEngine(t *testing.T) (*Engine, func()) {
-	engine, engineCleanup := setupTestEngine(t)
+	engine, engineCleanup := setupTestEngine(t, nil)
 
 	cleanup := func() {
 		engine.Close()
@@ -18,6 +18,7 @@ func setupTestTxnEngine(t *testing.T) (*Engine, func()) {
 
 func TestBasicTransactionOperations(t *testing.T) {
 	txnEngine, cleanup := setupTestTxnEngine(t)
+	txnEngine.flushAndCompactByHand = true
 	defer cleanup()
 
 	// Begin transaction
@@ -135,6 +136,7 @@ func TestTransactionRollback(t *testing.T) {
 
 func TestTransactionIsolation(t *testing.T) {
 	txnEngine, cleanup := setupTestTxnEngine(t)
+	txnEngine.flushAndCompactByHand = true
 	defer cleanup()
 
 	// Start two transactions
@@ -213,15 +215,17 @@ func TestTransactionIsolation(t *testing.T) {
 	}
 
 	// Log which transaction's value won
-	if finalValue == value1 {
+	switch finalValue {
+	case value1:
 		t.Logf("Transaction 1 (ID: %d) value won", txn1.ID())
-	} else if finalValue == value2 {
+	case value2:
 		t.Logf("Transaction 2 (ID: %d) value won", txn2.ID())
 	}
 }
 
 func TestConcurrentTransactions(t *testing.T) {
 	txnEngine, cleanup := setupTestTxnEngine(t)
+	txnEngine.flushAndCompactByHand = true
 	defer cleanup()
 
 	numTxns := 10
@@ -276,7 +280,7 @@ func TestConcurrentTransactions(t *testing.T) {
 }
 
 func TestTransactionManager(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupTestEngine(t, nil)
 	defer cleanup()
 
 	config := DefaultTransactionConfig()
@@ -338,7 +342,8 @@ func TestTransactionManager(t *testing.T) {
 }
 
 func TestTransactionTimeout(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupTestEngine(t, nil)
+	engine.flushAndCompactByHand = true
 	defer cleanup()
 
 	config := DefaultTransactionConfig()

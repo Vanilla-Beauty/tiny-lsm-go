@@ -75,6 +75,10 @@ func (bb *BlockBuilder) EstimatedSize() int {
 	return len(bb.data) + len(bb.offsets)*2 + 2 // data + offsets + offset count
 }
 
+func (bb *BlockBuilder) DataSize() int {
+	return len(bb.data)
+}
+
 // IsEmpty returns true if the block builder is empty
 func (bb *BlockBuilder) IsEmpty() bool {
 	return len(bb.offsets) == 0
