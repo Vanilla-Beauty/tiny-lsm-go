@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"tiny-lsm-go/pkg/common"
+	"tiny-lsm-go/pkg/utils"
 	"tiny-lsm-go/pkg/wal"
 )
 
@@ -23,7 +24,7 @@ func (te *Engine) BeginWithIsolation(isolation IsolationLevel) (*Transaction, er
 // putWithTxn implements transaction-aware put operation based on isolation level
 func (te *Engine) PutWithTxn(txn *Transaction, key, value string) error {
 	if txn.state != TxnActive {
-		return ErrTransactionNotActive
+		return utils.ErrTransactionNotActive
 	}
 
 	// Add WAL record
@@ -62,7 +63,7 @@ func (te *Engine) PutWithTxn(txn *Transaction, key, value string) error {
 // getWithTxn implements transaction-aware get operation based on isolation level
 func (te *Engine) GetWithTxn(txn *Transaction, key string) (string, bool, error) {
 	if txn.state != TxnActive {
-		return "", false, ErrTransactionNotActive
+		return "", false, utils.ErrTransactionNotActive
 	}
 
 	// First check temporary map for all isolation levels
@@ -104,7 +105,7 @@ func (te *Engine) GetWithTxn(txn *Transaction, key string) (string, bool, error)
 		return value, exists, nil
 
 	default:
-		return "", false, ErrIsolationViolation
+		return "", false, utils.ErrIsolationViolation
 	}
 }
 
@@ -114,7 +115,7 @@ func (te *Engine) deleteWithTxn(txn *Transaction, key string) error {
 	defer txn.mu.Unlock()
 
 	if txn.state != TxnActive {
-		return ErrTransactionNotActive
+		return utils.ErrTransactionNotActive
 	}
 
 	// Add WAL record

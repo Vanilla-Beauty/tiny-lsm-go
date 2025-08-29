@@ -3,6 +3,7 @@ package sst
 import (
 	"encoding/binary"
 	"hash/crc32"
+	"tiny-lsm-go/pkg/utils"
 )
 
 // BlockMeta represents metadata for a block in an SST file
@@ -39,9 +40,9 @@ func EncodeBlockMetas(metas []BlockMeta) []byte {
 	// Calculate total size needed
 	totalSize := 4 // num_entries
 	for _, meta := range metas {
-		totalSize += 4                          // offset
-		totalSize += 2 + len(meta.FirstKey)     // first_key_len + first_key
-		totalSize += 2 + len(meta.LastKey)      // last_key_len + last_key
+		totalSize += 4                      // offset
+		totalSize += 2 + len(meta.FirstKey) // first_key_len + first_key
+		totalSize += 2 + len(meta.LastKey)  // last_key_len + last_key
 	}
 	totalSize += 4 // checksum
 
@@ -74,7 +75,7 @@ func EncodeBlockMetas(metas []BlockMeta) []byte {
 	}
 
 	// Calculate checksum of the metadata (excluding the checksum itself)
-	checksum := crc32.ChecksumIEEE(result[0 : pos])
+	checksum := crc32.ChecksumIEEE(result[0:pos])
 	binary.LittleEndian.PutUint32(result[pos:pos+4], checksum)
 
 	return result
@@ -83,7 +84,7 @@ func EncodeBlockMetas(metas []BlockMeta) []byte {
 // DecodeBlockMetas decodes BlockMeta slice from bytes
 func DecodeBlockMetas(data []byte) ([]BlockMeta, error) {
 	if len(data) < 8 {
-		return nil, ErrInvalidMetadata
+		return nil, utils.ErrInvalidMetadata
 	}
 
 	pos := 0
@@ -97,7 +98,7 @@ func DecodeBlockMetas(data []byte) ([]BlockMeta, error) {
 		expectedChecksum := binary.LittleEndian.Uint32(data[4:8])
 		actualChecksum := crc32.ChecksumIEEE(data[0:4])
 		if expectedChecksum != actualChecksum {
-			return nil, ErrInvalidChecksum
+			return nil, utils.ErrInvalidChecksum
 		}
 		return []BlockMeta{}, nil
 	}
@@ -107,7 +108,7 @@ func DecodeBlockMetas(data []byte) ([]BlockMeta, error) {
 	// Read each meta entry
 	for i := uint32(0); i < numEntries; i++ {
 		if pos+4 > len(data) {
-			return nil, ErrInvalidMetadata
+			return nil, utils.ErrInvalidMetadata
 		}
 
 		// Read offset
@@ -116,26 +117,26 @@ func DecodeBlockMetas(data []byte) ([]BlockMeta, error) {
 
 		// Read first key
 		if pos+2 > len(data) {
-			return nil, ErrInvalidMetadata
+			return nil, utils.ErrInvalidMetadata
 		}
 		firstKeyLen := binary.LittleEndian.Uint16(data[pos : pos+2])
 		pos += 2
 
 		if pos+int(firstKeyLen) > len(data) {
-			return nil, ErrInvalidMetadata
+			return nil, utils.ErrInvalidMetadata
 		}
 		firstKey := string(data[pos : pos+int(firstKeyLen)])
 		pos += int(firstKeyLen)
 
 		// Read last key
 		if pos+2 > len(data) {
-			return nil, ErrInvalidMetadata
+			return nil, utils.ErrInvalidMetadata
 		}
 		lastKeyLen := binary.LittleEndian.Uint16(data[pos : pos+2])
 		pos += 2
 
 		if pos+int(lastKeyLen) > len(data) {
-			return nil, ErrInvalidMetadata
+			return nil, utils.ErrInvalidMetadata
 		}
 		lastKey := string(data[pos : pos+int(lastKeyLen)])
 		pos += int(lastKeyLen)
@@ -149,12 +150,12 @@ func DecodeBlockMetas(data []byte) ([]BlockMeta, error) {
 
 	// Verify checksum
 	if pos+4 > len(data) {
-		return nil, ErrInvalidMetadata
+		return nil, utils.ErrInvalidMetadata
 	}
 	expectedChecksum := binary.LittleEndian.Uint32(data[pos : pos+4])
 	actualChecksum := crc32.ChecksumIEEE(data[0:pos])
 	if expectedChecksum != actualChecksum {
-		return nil, ErrInvalidChecksum
+		return nil, utils.ErrInvalidChecksum
 	}
 
 	return metas, nil

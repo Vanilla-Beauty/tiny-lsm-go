@@ -53,7 +53,7 @@ The project follows a layered architecture similar to LevelDB:
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/tiny-lsm-go
+git clone https://github.com/Vanilla-Beauty/tiny-lsm-go
 cd tiny-lsm-go
 go mod tidy
 ```

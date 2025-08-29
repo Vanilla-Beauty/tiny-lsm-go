@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tiny-lsm-go/pkg/common"
+	"tiny-lsm-go/pkg/utils"
 	"tiny-lsm-go/pkg/wal"
 )
 
@@ -104,9 +105,6 @@ func NewTransactionManager(engine *Engine, config *TransactionConfig) *Transacti
 
 	mgr.loadTxnStatus()
 
-	// Start sync goroutine
-	go mgr.synchronize()
-
 	return mgr
 }
 
@@ -122,7 +120,7 @@ func (m *TransactionManager) BeginWithIsolation(isolation IsolationLevel) (*Tran
 
 	// Check if we exceed maximum active transactions
 	if len(m.activeTxns) >= m.config.MaxActiveTxns {
-		return nil, ErrTooManyActiveTxns
+		return nil, utils.ErrTooManyActiveTxns
 	}
 
 	txnID := atomic.AddUint64(&m.engine.metadata.NextTxnID, 1) - 1
@@ -181,16 +179,6 @@ func (m *TransactionManager) GetNextTxnID() uint64 {
 	return atomic.LoadUint64(&m.engine.metadata.NextTxnID)
 }
 
-// cleanupWorker runs periodically to clean up old committed transactions
-func (m *TransactionManager) synchronize() {
-	ticker := time.NewTicker(m.config.CleanupInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		m.syncTxnStatus()
-	}
-}
-
 func (m *TransactionManager) updateFlushedTxn(txnID uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -233,6 +221,20 @@ func (m *TransactionManager) needRepay(txnID uint64) bool {
 	defer m.mu.RUnlock()
 	_, exist := m.committedTxns[txnID]
 	return exist
+}
+
+func (m *TransactionManager) GetactiveTxnIDs() map[uint64]struct{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	activeIDs := make(map[uint64]struct{})
+	for id := range m.activeTxns {
+		activeIDs[id] = struct{}{}
+	}
+	return activeIDs
+}
+
+func (m *TransactionManager) Close() error {
+	return m.syncTxnStatus()
 }
 
 // ID returns the transaction ID
@@ -291,7 +293,7 @@ func (t *Transaction) Commit() error {
 	defer t.mu.Unlock()
 
 	if t.state != TxnActive {
-		return ErrTransactionNotActive
+		return utils.ErrTransactionNotActive
 	}
 
 	// Handle different isolation levels
@@ -347,7 +349,7 @@ func (t *Transaction) Rollback() error {
 	defer t.mu.Unlock()
 
 	if t.state != TxnActive {
-		return ErrTransactionNotActive
+		return utils.ErrTransactionNotActive
 	}
 
 	// Handle rollback based on isolation level
@@ -430,7 +432,7 @@ func (t *Transaction) detectConflicts() error {
 			globalReadTxnID := atomic.LoadUint64(&t.manager.engine.metadata.GlobalReadTxnID)
 			if globalReadTxnID > t.id {
 				// A later transaction has committed changes, potential conflict
-				return ErrWriteConflict
+				return utils.ErrTransactionConflict
 			}
 		}
 	}

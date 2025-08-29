@@ -105,3 +105,4 @@ debug.test
 # Local configuration files
 *.local
 local.*
+*lsm_example_data*

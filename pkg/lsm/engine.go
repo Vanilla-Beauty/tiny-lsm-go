@@ -1,7 +1,7 @@
 package lsm
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,11 +38,7 @@ type Engine struct {
 	// Metadata persistence
 	metadataFile string
 
-	// Synchronization
-	flushMu sync.Mutex
-
 	// Background workers
-	stopCh  chan struct{}
 	checkCh chan struct{}
 
 	wg sync.WaitGroup
@@ -55,6 +51,10 @@ type Engine struct {
 	// State
 	closed                bool
 	flushAndCompactByHand bool // during test, disable background flush and compact to make it easy to debug
+
+	// Context for controlling background goroutines
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (e *Engine) initTxnManager(config *TransactionConfig) error {
@@ -116,14 +116,21 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 			NextTxnID:       1,
 			GlobalReadTxnID: 1,
 		},
-		stopCh: make(chan struct{}),
 
 		stats:        &EngineStatistics{},
 		metadataFile: filepath.Join(dataDir, "metadata"),
 		closed:       false,
+		checkCh:      make(chan struct{}, 1),
 	}
-
 	engine.initTxnManager(nil)
+
+	// Create context for background workers
+	engine.ctx, engine.cancel = context.WithCancel(context.Background())
+
+	// Load metadata if exists
+	if err := loadMetadata(engine); err != nil {
+		fmt.Printf("failed to load metadata: %v\n", err)
+	}
 
 	// Recover from existing data if any
 	if err := engine.recover(); err != nil {
@@ -143,10 +150,6 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 
 // recover recovers the engine state from disk
 func (e *Engine) recover() error {
-	// Load metadata if exists
-	if err := loadMetadata(e); err != nil {
-		return fmt.Errorf("failed to load metadata: %w", err)
-	}
 	// First, recover SST files
 	if err := e.levels.LoadExistingSSTs(); err != nil {
 		return fmt.Errorf("failed to load existing SST files: %w", err)
@@ -175,22 +178,26 @@ func (e *Engine) recoverFromWAL() error {
 		return nil // No records to recover
 	}
 
-	fmt.Printf("🔄 Recovering %d transactions from WAL...\n", len(recordsByTxn))
+	fmt.Printf("🔄 Check %d transactions from WAL...\n", len(recordsByTxn))
 
 	// Process each transaction
+	hasRepayed := false
 	for txnID, records := range recordsByTxn {
 		if e.txnManager.needRepay(txnID) {
 			if err := e.replayTransaction(txnID, records); err != nil {
 				fmt.Printf("Warning: failed to replay transaction %d: %v\n", txnID, err)
+				os.Exit(1)
 			}
-		}
-
-		if err := e.replayTransaction(txnID, records); err != nil {
-			fmt.Printf("Warning: failed to replay transaction %d: %v\n", txnID, err)
+			hasRepayed = true
+			fmt.Printf(" ✅ Replayed record %+v.\n", records)
 		}
 	}
+	if hasRepayed {
+		fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
+	} else {
+		fmt.Println("✅ WAL recovery completed. No transactions to replay.")
+	}
 
-	fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
 	return nil
 }
 
@@ -242,10 +249,11 @@ func (e *Engine) replayTransaction(txnID uint64, records []*wal.Record) error {
 // startBackgroundWorkers starts the background flush and compaction workers
 func (e *Engine) startBackgroundWorkers() {
 	// Flush worker
-	e.wg.Add(1)
+	e.wg.Add(3)
 	go e.flushWorker()
+	go e.cleanWalWorker()
+	go e.syncTxnStatusWorker()
 
-	// Compaction worker (if enabled)
 	if e.config.Compaction.EnableAutoCompaction {
 		e.wg.Add(1)
 		go e.compactionWorker()
@@ -261,7 +269,7 @@ func (e *Engine) Put(key, value string) error {
 // PutWithTxn inserts or updates a key-value pair with transaction ID
 func (e *Engine) PutWithTxnID(key, value string, txnID uint64) error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	err := e.memTable.Put(key, value, txnID)
@@ -290,7 +298,7 @@ func (e *Engine) PutBatch(kvs []common.KVPair) error {
 // PutBatchWithTxn inserts or updates multiple key-value pairs with transaction ID
 func (e *Engine) PutBatchWithTxnID(kvs []common.KVPair, txnID uint64) error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	err := e.memTable.PutBatch(kvs, txnID)
@@ -318,7 +326,7 @@ func (e *Engine) Get(key string) (string, bool, error) {
 // GetWithTxnID retrieves a value by key with transaction ID for snapshot isolation
 func (e *Engine) GetWithTxnID(key string, txnID uint64) (string, bool, error) {
 	if e.closed {
-		return "", false, ErrEngineClosed
+		return "", false, utils.ErrClosed
 	}
 
 	atomic.AddUint64(&e.stats.Reads, 1)
@@ -351,7 +359,7 @@ func (e *Engine) GetBatch(keys []string) ([]memtable.GetResult, error) {
 // GetBatchWithTxn retrieves multiple values by keys with transaction ID
 func (e *Engine) GetBatchWithTxnID(keys []string, txnID uint64) ([]memtable.GetResult, error) {
 	if e.closed {
-		return nil, ErrEngineClosed
+		return nil, utils.ErrClosed
 	}
 
 	defer atomic.AddUint64(&e.stats.Reads, uint64(len(keys)))
@@ -406,7 +414,7 @@ func (e *Engine) Delete(key string) error {
 // Delete marks a key as deleted
 func (e *Engine) DeleteWithTxnID(key string, txnID uint64) error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	// Check if we need to freeze the current memtable
@@ -448,9 +456,6 @@ func (e *Engine) NewIterator() iterator.Iterator {
 
 // freezeMemTableIfNeeded freezes the current memtable if it's too large
 func (e *Engine) freezeMemTableIfNeeded() {
-	e.flushMu.Lock()
-	defer e.flushMu.Unlock()
-
 	if int64(e.memTable.GetCurrentSize()) >= e.config.GetPerMemSizeLimit() {
 		e.memTable.FreezeCurrentTable()
 	}
@@ -459,21 +464,24 @@ func (e *Engine) freezeMemTableIfNeeded() {
 // Flush forces a flush of frozen memtables to disk
 func (e *Engine) Flush() error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	if !e.flushAndCompactByHand {
-		return errors.New("Flush is disabled")
+		return e.NoticeFlushCheck()
 	}
 
-	e.flushMu.Lock()
-	defer e.flushMu.Unlock()
-
-	return e.doFlush()
+	return e._doFlush()
 }
 
-// doFlush performs the actual flush operation
-func (e *Engine) doFlush() error {
+func (e *Engine) updateOnTxnFlushed(entry *iterator.Entry) error {
+	e.txnManager.updateFlushedTxn(entry.TxnID)
+	return nil
+}
+
+// _doFlush performs the actual flush operation
+// need lock outside
+func (e *Engine) _doFlush() error {
 	flushResult, err := e.memTable.FlushOldest()
 	if err != nil {
 		return fmt.Errorf("flush failed: %w", err)
@@ -492,7 +500,7 @@ func (e *Engine) doFlush() error {
 	// Add entries from flush result
 	for _, entry := range flushResult.Entries {
 		if entry.Key == "" && entry.Value == "" {
-			e.txnManager.updateFlushedTxn(entry.TxnID)
+			e.updateOnTxnFlushed(&entry)
 			// skip the transaction end marker
 			continue
 		}
@@ -539,21 +547,28 @@ func (e *Engine) flushWorker() {
 
 	for {
 		select {
-		case <-e.stopCh:
+		case <-e.ctx.Done():
 			return
 		case <-e.checkCh:
 		case <-utils.After(200): // 200ms
 			// Check if we need to flush
 			if e.memTable.CanFlush() {
-				e.flushMu.Lock()
-				if err := e.doFlush(); err != nil {
+				if err := e._doFlush(); err != nil {
 					// Log error but continue
 					fmt.Printf("Background flush error: %v\n", err)
 				}
-				e.flushMu.Unlock()
 			}
 		}
 	}
+}
+
+func (e *Engine) flushAtClose() error {
+	for !e.memTable.Empty() {
+		if err := e._doFlush(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compactionWorker runs in the background to compact SSTs when needed
@@ -566,7 +581,7 @@ func (e *Engine) compactionWorker() {
 
 	for {
 		select {
-		case <-e.stopCh:
+		case <-e.ctx.Done():
 			return
 		case <-utils.After(5000): // 5 seconds
 			// Check if automatic compaction is needed
@@ -580,14 +595,34 @@ func (e *Engine) compactionWorker() {
 	}
 }
 
-func (e *Engine) NoticeFlushCheck() {
+// cleanupLoop runs in a background goroutine to clean old WAL files
+func (e *Engine) cleanWalWorker() {
+	defer e.wg.Done()
+	fmt.Printf("Starting WAL cleanup loop\n")
+
+	ticker := time.NewTicker(time.Duration(e.config.WAL.CleanInterval))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+			activeTxnIDs := e.txnManager.GetactiveTxnIDs()
+			e.wal.CleanOldFiles(activeTxnIDs)
+		}
+	}
+}
+func (e *Engine) NoticeFlushCheck() error {
 	if e.closed {
-		return
+		return utils.ErrClosed
 	}
 	select {
 	case e.checkCh <- struct{}{}:
 	default:
+		return nil
 	}
+	return nil
 }
 
 func (e *Engine) ForceCompact() {
@@ -615,10 +650,22 @@ func (e *Engine) doCompaction() error {
 	return e.levels.ExecuteCompaction(task, e.metadata.NextSSTID, &e.metadata.NextSSTID)
 }
 
+func (e *Engine) compactAtClose() error {
+	for {
+		task := e.levels.PickCompactionTask()
+		if task == nil {
+			return nil // No compaction needed
+		}
+		if err := e.levels.ExecuteCompaction(task, e.metadata.NextSSTID, &e.metadata.NextSSTID); err != nil {
+			return err
+		}
+	}
+}
+
 // ForceCompaction forces a compaction of the specified level
 func (e *Engine) ForceCompaction(level int) error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	task := e.levels.CreateCompactionTask(level)
@@ -627,6 +674,23 @@ func (e *Engine) ForceCompaction(level int) error {
 	}
 
 	return e.levels.ExecuteCompaction(task, e.metadata.NextSSTID, &e.metadata.NextSSTID)
+}
+
+// cleanupWorker runs periodically to clean up old committed transactions
+func (e *Engine) syncTxnStatusWorker() {
+	defer e.wg.Done()
+
+	ticker := time.NewTicker(e.txnManager.config.CleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+			e.txnManager.syncTxnStatus()
+		}
+	}
 }
 
 // GetStatistics returns engine statistics
@@ -665,7 +729,7 @@ func (e *Engine) GetWAL() *wal.WAL {
 // DeleteWithTxn marks a key as deleted with transaction ID
 func (e *Engine) DeleteWithTxn(key string, txnID uint64) error {
 	if e.closed {
-		return ErrEngineClosed
+		return utils.ErrClosed
 	}
 
 	// Check if we need to freeze the current memtable
@@ -713,34 +777,19 @@ func (e *Engine) Close() error {
 
 	e.closed = true
 
-	// Stop background workers
-	close(e.stopCh)
+	e.cancel()
 	e.wg.Wait()
 
-	// Flush any remaining memtable data
-	for !e.memTable.Empty() {
-		if err := e.doFlush(); err != nil {
-			fmt.Printf("Final flush error during shutdown: %v\n", err)
-		}
-	}
+	e.flushAtClose()
+	e.compactAtClose()
 
 	// Save metadata before shutdown
 	if err := saveMetadata(e); err != nil {
 		fmt.Printf("Warning: failed to save metadata during shutdown: %v\n", err)
 	}
 
-	// Close WAL
-	if e.wal != nil {
-		if err := e.wal.Close(); err != nil {
-			fmt.Printf("Error closing WAL: %v\n", err)
-		}
-	}
-
-	// Close SST files
-	e.levels.Close()
-
-	// Close block cache
-	e.blockCache.Clear()
+	e.txnManager.Close()
+	e.wal.Close()
 
 	return nil
 }

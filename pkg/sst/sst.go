@@ -50,7 +50,7 @@ func Open(sstID uint64, filePath string, blockCache *cache.BlockCache) (*SST, er
 	fileSize := fileInfo.Size()
 	if fileSize < 24 { // Min size: 4+4+8+8 = 24 bytes for offsets and transaction IDs
 		file.Close()
-		return nil, ErrInvalidSSTFile
+		return nil, utils.ErrInvalidSSTFile
 	}
 
 	sst := &SST{
@@ -79,7 +79,7 @@ func Open(sstID uint64, filePath string, blockCache *cache.BlockCache) (*SST, er
 	// Validate offsets
 	if int64(sst.metaOffset) >= fileSize || int64(sst.bloomOffset) >= fileSize {
 		file.Close()
-		return nil, ErrCorruptedFile
+		return nil, utils.ErrCorruptedFile
 	}
 
 	// Read and decode metadata
@@ -184,7 +184,7 @@ func (sst *SST) TxnRange() (uint64, uint64) {
 // ReadBlock reads a block by index
 func (sst *SST) ReadBlock(blockIdx int) (*block.Block, error) {
 	if blockIdx < 0 || blockIdx >= len(sst.metaEntries) {
-		return nil, ErrBlockNotFound
+		return nil, utils.ErrBlockNotFound
 	}
 
 	// Try cache first
@@ -432,7 +432,7 @@ func (builder *SSTBuilder) Build(sstID uint64, filePath string, blockCache *cach
 	}
 
 	if len(builder.metas) == 0 {
-		return nil, ErrEmptySST
+		return nil, utils.ErrEmptySST
 	}
 
 	// Create the file
