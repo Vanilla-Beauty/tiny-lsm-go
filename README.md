@@ -160,6 +160,9 @@ Run benchmarks:
 go test -bench=. ./...
 ```
 
+## 📦 Tools
+While debugging and analyzing Tiny-LSM-Go database files, you can use the tools provided in the `tool` directory. The usaage can be found [here](tool/Readme.md)
+
 ## 🤝 Contributing
 
 This is an educational project. Contributions are welcome! Please feel free to submit issues and pull requests.
