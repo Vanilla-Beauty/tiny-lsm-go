@@ -2,13 +2,10 @@ package redis
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"tiny-lsm-go/pkg/config"
-	"tiny-lsm-go/pkg/logger"
 	"tiny-lsm-go/pkg/lsm"
 )
 
@@ -126,47 +123,19 @@ func (r *RedisWrapper) getSetPrefix(key string) string {
 
 // isExpired checks if a key has expired
 func (r *RedisWrapper) isExpired(expireValue string) bool {
-	if expireValue == "" {
-		return false
-	}
-
-	expireTime, err := strconv.ParseInt(expireValue, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	now := time.Now().Unix()
-	return now > expireTime
+	// TODO: Lab 6.1
+	return false
 }
 
 // getExpireTime calculates expire time for given seconds
 func (r *RedisWrapper) getExpireTime(seconds int64) string {
-	now := time.Now().Unix()
-	return strconv.FormatInt(now+seconds, 10)
+	// TODO: Lab 6.1
+	return ""
 }
 
 // expireCleanHash checks and cleans expired hash data
 func (r *RedisWrapper) expireCleanHash(key string) bool {
-	expireKey := r.getExpireKey(key)
-	expireValue, err := r.getEngineValue(expireKey)
-	if err != nil || expireValue == nil {
-		return false
-	}
-
-	if r.isExpired(*expireValue) {
-		// Clean up all hash fields
-		hashValue, err := r.getEngineValue(key)
-		if err == nil && hashValue != nil {
-			fields := r.getFieldsFromHashValue(*hashValue)
-			for _, field := range fields {
-				fieldKey := r.getHashFieldKey(key, field)
-				r.engine.Delete(fieldKey)
-			}
-		}
-		r.engine.Delete(key)
-		r.engine.Delete(expireKey)
-		return true
-	}
+	// TODO: Lab 6.2
 
 	return false
 }
@@ -205,37 +174,15 @@ func (r *RedisWrapper) joinList(elements []string) string {
 
 // getEngineValue is a helper to get value from engine (handles 3-return signature)
 func (r *RedisWrapper) getEngineValue(key string) (*string, error) {
-	value, found, err := r.engine.Get(key)
-	logger.Debugf("getEngineValue: key=%q, value=%q, found=%v, err=%v\n", key, value, found, err)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, nil
-	}
-	return &value, nil
+	// TODO: Lab 6.1
+	return nil, nil
 }
 
 // scanPrefix scans for all keys with given prefix
 func (r *RedisWrapper) scanPrefix(prefix string) []string {
-	iter := r.engine.NewIterator()
-	defer iter.Close()
+	// TODO: Lab 6.3
 
 	var results []string
-	iter.Seek(prefix)
-
-	for iter.Valid() {
-		key := iter.Key()
-		if !strings.HasPrefix(key, prefix) {
-			break
-		}
-
-		if !iter.IsDeleted() {
-			results = append(results, key)
-		}
-
-		iter.Next()
-	}
 
 	return results
 }

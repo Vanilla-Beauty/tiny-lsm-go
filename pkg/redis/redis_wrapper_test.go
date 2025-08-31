@@ -58,6 +58,32 @@ func TestRedisWrapperBasicOperations(t *testing.T) {
 	assert.Equal(t, "$-1\r\n", result)
 }
 
+func TestRedisWrapperDel(t *testing.T) {
+	redis, testDir := setupTestRedis(t)
+	defer cleanupTestRedis(redis, testDir)
+
+	// Set multiple keys
+	redis.Set([]string{"SET", "key1", "value1"})
+	redis.Set([]string{"SET", "key2", "value2"})
+	redis.Set([]string{"SET", "key3", "value3"})
+
+	// Delete multiple keys
+	delArgs := []string{"DEL", "key1", "key2", "nonexistent"}
+	result := redis.Del(delArgs)
+	assert.Equal(t, ":2\r\n", result) // Only 2 keys existed
+
+	// Verify keys are deleted
+	result = redis.Get([]string{"GET", "key1"})
+	assert.Equal(t, "$-1\r\n", result)
+
+	result = redis.Get([]string{"GET", "key2"})
+	assert.Equal(t, "$-1\r\n", result)
+
+	// Key3 should still exist
+	result = redis.Get([]string{"GET", "key3"})
+	assert.Equal(t, "$6\r\nvalue3\r\n", result)
+}
+
 func TestRedisWrapperIncrDecr(t *testing.T) {
 	redis, testDir := setupTestRedis(t)
 	defer cleanupTestRedis(redis, testDir)
@@ -168,58 +194,6 @@ func TestRedisWrapperHashOperations(t *testing.T) {
 	assert.Equal(t, "$6\r\nvalue2\r\n", result)
 }
 
-func TestRedisWrapperListOperations(t *testing.T) {
-	redis, testDir := setupTestRedis(t)
-	defer cleanupTestRedis(redis, testDir)
-
-	key := "mylist"
-	value1 := "value1"
-	value2 := "value2"
-	value3 := "value3"
-
-	// Test LPUSH
-	lpushArgs1 := []string{"LPUSH", key, value1}
-	result := redis.LPush(lpushArgs1)
-	assert.Equal(t, ":1\r\n", result)
-
-	lpushArgs2 := []string{"LPUSH", key, value2}
-	result = redis.LPush(lpushArgs2)
-	assert.Equal(t, ":2\r\n", result)
-
-	// Test RPUSH
-	rpushArgs := []string{"RPUSH", key, value3}
-	result = redis.RPush(rpushArgs)
-	assert.Equal(t, ":3\r\n", result)
-
-	// Test LLEN
-	llenArgs := []string{"LLEN", key}
-	result = redis.LLen(llenArgs)
-	assert.Equal(t, ":3\r\n", result)
-
-	// Test LRANGE
-	lrangeArgs := []string{"LRANGE", key, "0", "-1"}
-	result = redis.LRange(lrangeArgs)
-	// List should be: value2, value1, value3 (value2 was pushed to front)
-	assert.Contains(t, result, "value1")
-	assert.Contains(t, result, "value2")
-	assert.Contains(t, result, "value3")
-	assert.Contains(t, result, "*3\r\n")
-
-	// Test LPOP
-	lpopArgs := []string{"LPOP", key}
-	result = redis.LPop(lpopArgs)
-	assert.Equal(t, "$6\r\nvalue2\r\n", result)
-
-	// Test RPOP
-	rpopArgs := []string{"RPOP", key}
-	result = redis.RPop(rpopArgs)
-	assert.Equal(t, "$6\r\nvalue3\r\n", result)
-
-	// Test LLEN after pops
-	result = redis.LLen(llenArgs)
-	assert.Equal(t, ":1\r\n", result)
-}
-
 func TestRedisWrapperSetOperations(t *testing.T) {
 	redis, testDir := setupTestRedis(t)
 	defer cleanupTestRedis(redis, testDir)
@@ -308,30 +282,56 @@ func TestRedisWrapperZSetOperations(t *testing.T) {
 	assert.Equal(t, ":2\r\n", result)
 }
 
-func TestRedisWrapperDel(t *testing.T) {
+func TestRedisWrapperListOperations(t *testing.T) {
 	redis, testDir := setupTestRedis(t)
 	defer cleanupTestRedis(redis, testDir)
 
-	// Set multiple keys
-	redis.Set([]string{"SET", "key1", "value1"})
-	redis.Set([]string{"SET", "key2", "value2"})
-	redis.Set([]string{"SET", "key3", "value3"})
+	key := "mylist"
+	value1 := "value1"
+	value2 := "value2"
+	value3 := "value3"
 
-	// Delete multiple keys
-	delArgs := []string{"DEL", "key1", "key2", "nonexistent"}
-	result := redis.Del(delArgs)
-	assert.Equal(t, ":2\r\n", result) // Only 2 keys existed
+	// Test LPUSH
+	lpushArgs1 := []string{"LPUSH", key, value1}
+	result := redis.LPush(lpushArgs1)
+	assert.Equal(t, ":1\r\n", result)
 
-	// Verify keys are deleted
-	result = redis.Get([]string{"GET", "key1"})
-	assert.Equal(t, "$-1\r\n", result)
+	lpushArgs2 := []string{"LPUSH", key, value2}
+	result = redis.LPush(lpushArgs2)
+	assert.Equal(t, ":2\r\n", result)
 
-	result = redis.Get([]string{"GET", "key2"})
-	assert.Equal(t, "$-1\r\n", result)
+	// Test RPUSH
+	rpushArgs := []string{"RPUSH", key, value3}
+	result = redis.RPush(rpushArgs)
+	assert.Equal(t, ":3\r\n", result)
 
-	// Key3 should still exist
-	result = redis.Get([]string{"GET", "key3"})
+	// Test LLEN
+	llenArgs := []string{"LLEN", key}
+	result = redis.LLen(llenArgs)
+	assert.Equal(t, ":3\r\n", result)
+
+	// Test LRANGE
+	lrangeArgs := []string{"LRANGE", key, "0", "-1"}
+	result = redis.LRange(lrangeArgs)
+	// List should be: value2, value1, value3 (value2 was pushed to front)
+	assert.Contains(t, result, "value1")
+	assert.Contains(t, result, "value2")
+	assert.Contains(t, result, "value3")
+	assert.Contains(t, result, "*3\r\n")
+
+	// Test LPOP
+	lpopArgs := []string{"LPOP", key}
+	result = redis.LPop(lpopArgs)
+	assert.Equal(t, "$6\r\nvalue2\r\n", result)
+
+	// Test RPOP
+	rpopArgs := []string{"RPOP", key}
+	result = redis.RPop(rpopArgs)
 	assert.Equal(t, "$6\r\nvalue3\r\n", result)
+
+	// Test LLEN after pops
+	result = redis.LLen(llenArgs)
+	assert.Equal(t, ":1\r\n", result)
 }
 
 func TestRedisWrapperHashTTL(t *testing.T) {

@@ -3,13 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strings"
 	"sync"
 
 	"tiny-lsm-go/pkg/config"
+	"tiny-lsm-go/pkg/logger"
 	"tiny-lsm-go/pkg/redis"
 )
 
@@ -83,91 +83,26 @@ func (s *RedisServer) acceptConnections() {
 
 // handleConnection processes commands from a client connection
 func (s *RedisServer) handleConnection(conn net.Conn) {
-	defer s.wg.Done()
-	defer conn.Close()
+	// TODO: Lab 6.6
+
+	// TODO: concurrent control
 
 	reader := bufio.NewReader(conn)
+
 	for {
 		// Read RESP command
-		args, err := s.readRESPCommand(reader)
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading command: %v", err)
-			}
-			return
-		}
-
-		if len(args) == 0 {
-			continue
-		}
-
-		// Process command
+		args, _ := s.readRESPCommand(reader)
+		// TODO: you may add codes here
 		response := s.processCommand(args)
-
-		// Send response
-		_, err = conn.Write([]byte(response))
-		if err != nil {
-			log.Printf("Error writing response: %v", err)
-			return
-		}
+		logger.Info(response)
+		// TODO: you may add codes here
 	}
 }
 
 // readRESPCommand reads a RESP command from the reader
 func (s *RedisServer) readRESPCommand(reader *bufio.Reader) ([]string, error) {
-	// Read array header
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-
-	if len(line) < 2 || line[0] != '*' {
-		return nil, fmt.Errorf("invalid RESP array header: %s", line)
-	}
-
-	// Parse number of arguments
-	var argCount int
-	_, err = fmt.Sscanf(strings.TrimSpace(line), "*%d", &argCount)
-	if err != nil {
-		return nil, fmt.Errorf("invalid argument count: %w", err)
-	}
-
-	if argCount <= 0 {
-		return []string{}, nil
-	}
-
-	// Read each argument
-	args := make([]string, argCount)
-	for i := 0; i < argCount; i++ {
-		// Read bulk string header
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-
-		if len(line) < 2 || line[0] != '$' {
-			return nil, fmt.Errorf("invalid RESP bulk string header: %s", line)
-		}
-
-		// Parse string length
-		var strLen int
-		_, err = fmt.Sscanf(strings.TrimSpace(line), "$%d", &strLen)
-		if err != nil {
-			return nil, fmt.Errorf("invalid string length: %w", err)
-		}
-
-		// Read the actual string
-		strBytes := make([]byte, strLen+2) // +2 for \r\n
-		_, err = io.ReadFull(reader, strBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		// Remove \r\n and store argument
-		args[i] = string(strBytes[:strLen])
-	}
-
-	return args, nil
+	// TODO: Lab 6.6
+	return nil, nil
 }
 
 // processCommand processes a Redis command and returns the response
