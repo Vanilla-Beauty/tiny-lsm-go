@@ -78,6 +78,16 @@ type Config struct {
 		SetPrefix string `toml:"REDIS_SET_PREFIX"`
 	} `toml:"redis"`
 
+	// Logger Configuration
+	Logger struct {
+		// Enable file logging
+		EnableFileLogging bool `toml:"ENABLE_FILE_LOGGING"`
+		// Log directory
+		LogDir string `toml:"LOG_DIR"`
+		// Log level
+		LogLevel string `toml:"LOG_LEVEL"`
+	} `toml:"logger"`
+
 	mu sync.RWMutex
 }
 
@@ -163,6 +173,15 @@ func DefaultConfig() *Config {
 			SortedSetPrefix:   "__zset__:",
 			SortedSetScoreLen: 10,
 			SetPrefix:         "__set__:",
+		},
+		Logger: struct {
+			EnableFileLogging bool   `toml:"ENABLE_FILE_LOGGING"`
+			LogDir            string `toml:"LOG_DIR"`
+			LogLevel          string `toml:"LOG_LEVEL"`
+		}{
+			EnableFileLogging: false,
+			LogDir:            "logs",
+			LogLevel:          "info",
 		},
 	}
 }

@@ -43,3 +43,12 @@ ENABLE_AUTO_COMPACTION = true
 COMPACTION_TRIGGER_RATIO = 2
 # Maximum compaction threads
 MAX_COMPACTION_THREADS = 2
+
+# Logger Configuration
+[logger]
+# Enable logging to file
+ENABLE_FILE_LOGGING = false
+# Log directory
+LOG_DIR = "logs"
+# Log level (debug, info, warn, error)
+LOG_LEVEL = "info"

@@ -13,6 +13,7 @@ import (
 	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/config"
 	"tiny-lsm-go/pkg/iterator"
+	"tiny-lsm-go/pkg/logger"
 	"tiny-lsm-go/pkg/memtable"
 	"tiny-lsm-go/pkg/sst"
 	"tiny-lsm-go/pkg/utils"
@@ -129,7 +130,7 @@ func NewEngine(cfg *config.Config, dataDir string) (*Engine, error) {
 
 	// Load metadata if exists
 	if err := loadMetadata(engine); err != nil {
-		fmt.Printf("failed to load metadata: %v\n", err)
+		logger.Warnf("failed to load metadata: %v", err)
 	}
 
 	// Recover from existing data if any
@@ -178,24 +179,24 @@ func (e *Engine) recoverFromWAL() error {
 		return nil // No records to recover
 	}
 
-	fmt.Printf("🔄 Check %d transactions from WAL...\n", len(recordsByTxn))
+	logger.Infof("🔄 Check %d transactions from WAL...\n", len(recordsByTxn))
 
 	// Process each transaction
 	hasRepayed := false
 	for txnID, records := range recordsByTxn {
 		if e.txnManager.needRepay(txnID) {
 			if err := e.replayTransaction(txnID, records); err != nil {
-				fmt.Printf("Warning: failed to replay transaction %d: %v\n", txnID, err)
+				logger.Errorf("Warning: failed to replay transaction %d: %v\n", txnID, err)
 				os.Exit(1)
 			}
 			hasRepayed = true
-			fmt.Printf(" ✅ Replayed record %+v.\n", records)
+			logger.Infof(" ✅ Replayed record %+v.\n", records)
 		}
 	}
 	if hasRepayed {
-		fmt.Printf("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
+		logger.Infof("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
 	} else {
-		fmt.Println("✅ WAL recovery completed. No transactions to replay.")
+		logger.Info("✅ WAL recovery completed. No transactions to replay.")
 	}
 
 	return nil
@@ -220,7 +221,7 @@ func (e *Engine) replayTransaction(txnID uint64, records []*wal.Record) error {
 
 	// If transaction was committed, replay all operations
 	if committed {
-		fmt.Printf("  Replaying committed transaction %d...\n", txnID)
+		logger.Debugf("  Replaying committed transaction %d...\n", txnID)
 		for _, record := range records {
 			switch record.OpType {
 			case wal.OpPut:
@@ -238,9 +239,9 @@ func (e *Engine) replayTransaction(txnID uint64, records []*wal.Record) error {
 
 	// If transaction was rolled back or incomplete, ignore it
 	if rolledBack {
-		fmt.Printf("  Skipping rolled back transaction %d\n", txnID)
+		logger.Debugf("  Skipping rolled back transaction %d\n", txnID)
 	} else {
-		fmt.Printf("  Skipping incomplete transaction %d\n", txnID)
+		logger.Debugf("  Skipping incomplete transaction %d\n", txnID)
 	}
 
 	return nil
@@ -526,7 +527,7 @@ func (e *Engine) _doFlush() error {
 
 	// Save metadata after updating nextSSTID
 	if err := saveMetadata(e); err != nil {
-		fmt.Printf("Warning: failed to save metadata after flush: %v\n", err)
+		logger.Errorf("Warning: failed to save metadata after flush: %v\n", err)
 	}
 
 	// Update statistics
@@ -555,7 +556,7 @@ func (e *Engine) flushWorker() {
 			if e.memTable.CanFlush() {
 				if err := e._doFlush(); err != nil {
 					// Log error but continue
-					fmt.Printf("Background flush error: %v\n", err)
+					logger.Errorf("Background flush error: %v\n", err)
 				}
 			}
 		}
@@ -588,7 +589,7 @@ func (e *Engine) compactionWorker() {
 			if e.levels.NeedsCompaction() {
 				if err := e.doCompaction(); err != nil {
 					// Log error but continue
-					fmt.Printf("Background compaction error: %v\n", err)
+					logger.Errorf("Background compaction error: %v\n", err)
 				}
 			}
 		}
@@ -598,7 +599,7 @@ func (e *Engine) compactionWorker() {
 // cleanupLoop runs in a background goroutine to clean old WAL files
 func (e *Engine) cleanWalWorker() {
 	defer e.wg.Done()
-	fmt.Printf("Starting WAL cleanup loop\n")
+	logger.Infof("Starting WAL cleanup loop\n")
 
 	ticker := time.NewTicker(time.Duration(e.config.WAL.CleanInterval))
 	defer ticker.Stop()
@@ -636,7 +637,7 @@ func (e *Engine) ForceCompact() {
 	// Manual compaction trigger
 	if err := e.doCompaction(); err != nil {
 		// Log error but continue
-		fmt.Printf("Manual compaction error: %v\n", err)
+		logger.Errorf("Manual compaction error: %v\n", err)
 	}
 }
 
@@ -785,7 +786,7 @@ func (e *Engine) Close() error {
 
 	// Save metadata before shutdown
 	if err := saveMetadata(e); err != nil {
-		fmt.Printf("Warning: failed to save metadata during shutdown: %v\n", err)
+		logger.Errorf("Warning: failed to save metadata during shutdown: %v\n", err)
 	}
 
 	e.txnManager.Close()

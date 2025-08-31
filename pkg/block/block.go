@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"tiny-lsm-go/pkg/iterator"
+	"tiny-lsm-go/pkg/logger"
 )
 
 // Block represents a data block in SST files
@@ -303,10 +304,10 @@ func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
 	}
 
 	// Debug: print all matching entries
-	// fmt.Printf("GetValue(%s, %d): found %d entries\n", key, txnID, len(matchingEntries))
-	// for _, entry := range matchingEntries {
-	//	fmt.Printf("  TxnID=%d, Value=%s\n", entry.TxnID, entry.Value)
-	// }
+	logger.Tracef("GetValue(%s, %d): found %d entries\n", key, txnID, len(matchingEntries))
+	for _, entry := range matchingEntries {
+		logger.Tracef("  TxnID=%d, Value=%s\n", entry.TxnID, entry.Value)
+	}
 
 	// If txnID is 0, return the latest version
 	if txnID == 0 {
@@ -332,9 +333,9 @@ func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
 	}
 
 	// Debug: print best entry
-	// if bestEntry != nil {
-	//	fmt.Printf("  Best entry: TxnID=%d, Value=%s\n", bestEntry.TxnID, bestEntry.Value)
-	// }
+	if bestEntry != nil {
+		logger.Debugf("  Best entry: TxnID=%d, Value=%s\n", bestEntry.TxnID, bestEntry.Value)
+	}
 
 	if bestEntry != nil {
 		return bestEntry.Value, true

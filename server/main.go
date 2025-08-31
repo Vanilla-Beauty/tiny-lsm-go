@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"tiny-lsm-go/pkg/config"
+	"tiny-lsm-go/pkg/logger"
 )
 
 func main() {
@@ -16,15 +19,24 @@ func main() {
 
 	flag.Parse()
 
+	// Load configuration
+	cfg := config.DefaultConfig()
+	// You can load from file if needed: config.LoadFromFile("config.toml", cfg)
+
+	// Initialize logger
+	if err := logger.InitLoggerFile(cfg.Logger.LogDir, cfg.Logger.EnableFileLogging); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+
 	// Create the server
 	server, err := NewRedisServer(*address, *dbPath)
 	if err != nil {
-		log.Fatalf("Failed to create Redis server: %v", err)
+		logger.Fatalf("Failed to create Redis server: %v", err)
 	}
 
 	// Start the server
 	if err := server.Start(); err != nil {
-		log.Fatalf("Failed to start Redis server: %v", err)
+		logger.Fatalf("Failed to start Redis server: %v", err)
 	}
 
 	// Wait for interrupt signal to gracefully shutdown the server
@@ -32,12 +44,12 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down Redis server...")
+	logger.Info("Shutting down Redis server...")
 
 	// Stop the server
 	if err := server.Stop(); err != nil {
-		log.Fatalf("Error stopping server: %v", err)
+		logger.Fatalf("Error stopping server: %v", err)
 	}
 
-	log.Println("Server stopped")
+	logger.Info("Server stopped")
 }

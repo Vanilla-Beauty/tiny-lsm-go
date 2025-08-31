@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tiny-lsm-go/pkg/config"
+	"tiny-lsm-go/pkg/logger"
 	"tiny-lsm-go/pkg/lsm"
 )
 
@@ -205,7 +206,7 @@ func (r *RedisWrapper) joinList(elements []string) string {
 // getEngineValue is a helper to get value from engine (handles 3-return signature)
 func (r *RedisWrapper) getEngineValue(key string) (*string, error) {
 	value, found, err := r.engine.Get(key)
-	// fmt.Printf("DEBUG getEngineValue: key=%q, value=%q, found=%v, err=%v\n", key, value, found, err)
+	logger.Debugf("getEngineValue: key=%q, value=%q, found=%v, err=%v\n", key, value, found, err)
 	if err != nil {
 		return nil, err
 	}

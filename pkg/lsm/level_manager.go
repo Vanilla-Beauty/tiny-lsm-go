@@ -10,6 +10,7 @@ import (
 	"tiny-lsm-go/pkg/cache"
 	"tiny-lsm-go/pkg/config"
 	"tiny-lsm-go/pkg/iterator"
+	"tiny-lsm-go/pkg/logger"
 	"tiny-lsm-go/pkg/memtable"
 	"tiny-lsm-go/pkg/sst"
 	"tiny-lsm-go/pkg/utils"
@@ -122,7 +123,7 @@ func (lm *LevelManager) LoadExistingSSTs() error {
 		// Open the SST file
 		sstFile, err := sst.Open(sstID, filePath, lm.blockCache)
 		if err != nil {
-			fmt.Printf("Warning: failed to open SST file %s: %v\n", filePath, err)
+			logger.Errorf("Warning: failed to open SST file %s: %v\n", filePath, err)
 			continue
 		}
 
@@ -607,7 +608,7 @@ func (lm *LevelManager) Close() error {
 	for i := range lm.levels {
 		for _, sstFile := range lm.levels[i].SSTs {
 			if err := sstFile.Close(); err != nil {
-				fmt.Printf("Error closing SST file %d: %v\n", sstFile.ID(), err)
+				logger.Errorf("Error closing SST file %d: %v\n", sstFile.ID(), err)
 			}
 		}
 		lm.levels[i].SSTs = nil
