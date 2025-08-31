@@ -5,7 +5,7 @@
 这也就是之前提到的`std::enable_shared_from_this`的作用，让我们的`BlockIterator`可以使用`Block`的智能指针, 为什么这样设计呢? 因为`BlockIterator`的生命周期是依赖于于`Block`的, 如果`Block`的生命周期结束, `BlockIterator`依然存在, 那么就会产生悬空指针, 因此我们需要使用智能指针来管理`Block`的生命周期。
 
 这么说可能有点迷糊, 我们直接看头文件定义:
-```cpp
+```go
 class BlockIterator {
   // ...
 private:
@@ -34,7 +34,7 @@ private:
 
 你需要借助之前实现的`Block`的成员函数来实现这的移动逻辑:
 
-```cpp
+```go
 BlockIterator::BlockIterator(std::shared_ptr<Block> b, const std::string &key,
                              uint64_t tranc_id)
     : block(b), tranc_id_(tranc_id), cached_value(std::nullopt) {
@@ -45,7 +45,7 @@ BlockIterator::BlockIterator(std::shared_ptr<Block> b, const std::string &key,
 
 ## 2.2 运算符重载
 迭代器的运算符重载是你需要实现的基础成员函数:
-```cpp
+```go
 BlockIterator::pointer BlockIterator::operator->() const {
   // TODO: Lab3.2 -> 重载
   return nullptr;
@@ -77,7 +77,7 @@ BlockIterator::value_type BlockIterator::operator*() const {
 
 ## 2.3 辅助函数
 这里有一些作者提供的可能用用的辅助函数, 你可以按选择实现他们, 也可以忽略他们, 自己按照自己的理解创建自定义的成员函数:
-```cpp
+```go
 void BlockIterator::update_current() const {
   // TODO: Lab3.2 更新当前指针
   // ? 该函数是可选的实现, 你可以采用自己的其他方案实现->, 而不是使用
@@ -97,7 +97,7 @@ void BlockIterator::skip_by_tranc_id() {
 
 # 4 获取迭代器的接口函数实现
 现在我们已经实现了`BlockIterator`的, 我们需要实现`Block`的`begin`和`end`函数将`BlockIterator`进行返回给外部组件使用:
-```cpp
+```go
 BlockIterator Block::begin(uint64_t tranc_id) {
   // TODO Lab 3.2 获取begin迭代器
   return BlockIterator(nullptr, 0, 0);

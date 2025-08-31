@@ -24,114 +24,56 @@
 # 3 代码组织简介
 这一小节我们首先对`Redis`的兼容层代码进行简要介绍, 我们的代码组织为:
 ```bash
-├── config.toml # 配置文件的常量 (你需要复制到单元测试编译的目录下才能生效)
-├── include
-│   ├── redis_wrapper # Redis 兼容层的头文件定义
-│   │   └── redis_wrapper.h
-├── server # 调用 Redis 兼容层的 Webserver
-│   ├── include
-│   │   └── handler.h # Redis 命令处理函数的声明
-│   └── src
-│       ├── handler.cpp # Redis 命令处理函数的实现, 就是对 redis_wrapper 的转发
-│       └── server.cpp # Webserver 的实现
-├── src
-│   ├── redis_wrapper
-│   │   └── redis_wrapper.cpp # Redis 兼容层的实现
-├── test
-│   ├── test_redis.cpp # Redis 兼容层的单元测试
-└── xmake.lua
+redis
+├── basic_commands.go
+├── hash_commands.go
+├── list_commands.go
+├── redis_wrapper.go      # 整体封装层
+├── redis_wrapper_test.go # 单元测试
+├── set_commands.go
+└── zset_commands.go
 ```
 
 各个代码文件的作用如上所示, 这里我们主要介绍今天要修改的`redis_wrapper.cpp`和`redis_wrapper.h`文件。
 
-首先看`redis_wrapper.h`文件:
-```cpp
-class RedisWrapper {
-private:
-  std::unique_ptr<LSM> lsm;
-  std::shared_mutex redis_mtx;
-
-public:
-  RedisWrapper(const std::string &db_path);
-  void clear();
-  void flushall();
-
-  // ************************* Redis Command Parser *************************
-  // ...
-
-private:
-  // ************************* Redis Command Handler *************************
-  // 基础操作
-  std::string redis_incr(const std::string &key);
-  std::string redis_decr(const std::string &key);
-  std::string redis_expire(const std::string &key, std::string seconds_count);
-  std::string redis_set(std::string &key, std::string &value);
-  std::string redis_get(std::string &key);
-  std::string redis_del(std::vector<std::string> &args);
-  std::string redis_ttl(std::string &key);
-
-  // 哈希操作
-  std::string redis_hset(const std::string &key, const std::string &field,
-                         const std::string &value);
-  std::string redis_hset_batch(
-      const std::string &key,
-      std::vector<std::pair<std::string, std::string>> &field_value_pairs);
-  std::string redis_hget(const std::string &key, const std::string &field);
-  std::string redis_hdel(const std::string &key, const std::string &field);
-  std::string redis_hkeys(const std::string &key);
-  // 链表操作
-  std::string redis_lpush(const std::string &key, const std::string &value);
-  std::string redis_rpush(const std::string &key, const std::string &value);
-  std::string redis_lpop(const std::string &key);
-  std::string redis_rpop(const std::string &key);
-  std::string redis_llen(const std::string &key);
-  std::string redis_lrange(const std::string &key, int start, int stop);
-  // 有序集合操作
-  std::string redis_zadd(std::vector<std::string> &args);
-  std::string redis_zrem(std::vector<std::string> &args);
-  std::string redis_zrange(std::vector<std::string> &args);
-  std::string redis_zcard(const std::string &key);
-  std::string redis_zscore(const std::string &key, const std::string &elem);
-  std::string redis_zincrby(const std::string &key,
-                            const std::string &increment,
-                            const std::string &elem);
-  std::string redis_zrank(const std::string &key, const std::string &elem);
-  // 无序集合操作
-  std::string redis_sadd(std::vector<std::string> &args);
-  std::string redis_srem(std::vector<std::string> &args);
-  std::string redis_sismember(const std::string &key,
-                              const std::string &member);
-  std::string redis_scard(const std::string &key);
-  std::string redis_smembers(const std::string &key);
-};
+首先看`redis_wrapper.go`文件:
+```go
+// RedisWrapper provides Redis-compatible interface on top of LSM engine
+type RedisWrapper struct {
+	engine *lsm.Engine
+	config *config.Config
+	mu     sync.RWMutex
+}
 ```
-这里的成员变量只有一把锁和一个`LSM`对象, 锁用于保护`LSM`对象, 防止并发访问。不过这个锁的只是一个可选的使用项, 如果你之前的`LSMEngine`的接口实现了对某些批量化操作的并发控制, 那么你可以直接使用`LSMEngine`的接口, 而不需要使用`RedisWrapper`的锁。
+这里的成员变量只有一把锁、配置类和一个`LSM`对象, 锁用于保护`LSM`对象, 防止并发访问。不过这个锁的只是一个可选的使用项, 如果你之前的`LSMEngine`的接口实现了对某些批量化操作的并发控制, 那么你可以直接使用`LSMEngine`的接口, 而不需要使用`RedisWrapper`的锁。
 
-其余部分的`redis_xxx`函数都是你需要在本大章节的`Lab`中需要实现的, 其对应于具体的`Redis`命令
+其余部分的`redis_wrapper.go`的代码都是一些整体架构上的功能函数，后续会介绍到，至于具体的单个类型的命令实现，都在同目录的`xxx_commands.go`文件中, 例如`Hash`相关命令的实现在`hash_commands.go`文件中。
 
 # 4 代码实现
 本小节我们实现字符串处理相关命令函数, 你需要修改的代码文件包括:
-- `src/redis_wrapper/redis_wrapper.cpp`
-- `include/redis_wrapper/redis_wrapper.h` (Optional)
+- `pkg/redis/basic_commands.go`
+- `pkg/redis/redis_wrapper.go`
 
 ## 4.1 set
-```cpp
-std::string RedisWrapper::redis_set(std::string &key, std::string &value) {
-  // TODO: Lab 6.1 新建(或更改)一个`key`的值
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return "+OK\r\n";
+```go
+// Set implements Redis SET command
+func (r *RedisWrapper) Set(args []string) string {
+	// TODO: Lab 6.1
+
+	return "$-1\r\n"
 }
 ```
 
 这里我们不需要你支持在`set`一个`key`时就指定其过期时间, 我们的单元测试只会在`expire`中手动设置过期时间。
 
 ## 4.2 expire
-```cpp
-std::string RedisWrapper::redis_expire(const std::string &key,
-                                       std::string seconds_count) {
-  // TODO: Lab 6.1 设置一个`key`的过期时间
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":1\r\n";
+```go
+// pkg/redis/basic_commands.go
+// Expire implements Redis EXPIRE command
+func (r *RedisWrapper) Expire(args []string) string {
+	// TODO: Lab 6.1
+
+	return ":1\r\n"
 }
 ```
 该命令用于设置一个`key`的过期时间, 单位为秒。
@@ -139,39 +81,53 @@ std::string RedisWrapper::redis_expire(const std::string &key,
 如同之前理论部分的介绍, 你既可以选择为其额外设置一个表示过期时间的键值对, 也可以在键值对的字符串中拼接表示过期时间的部分, 亦或是其他方案。
 
 ### 4.3 ttl
-```cpp
-std::string RedisWrapper::redis_ttl(std::string &key) {
-  // TODO: Lab 6.1 获取一个`key`的剩余过期时间
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":1\r\n"; // 表示键不存在
+```go
+// pkg/redis/basic_commands.go
+// TTL implements Redis TTL command
+func (r *RedisWrapper) TTL(args []string) string {
+	// TODO: Lab 6.1
+
+	return ":-1\r\n" // Key exists but no TTL set
 }
 ```
 该命令是与`expire`成对的, 你在`expire`中如何设置过期时间, 就需要在`ttl`中如何获取剩余过期时间。
 
 ## 4.4 get
-```cpp
-std::string RedisWrapper::redis_get(std::string &key) {
-  // TODO: Lab 6.1 获取一个`key`的值
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return "$-1\r\n"; // 表示键不存在
+```go
+// pkg/redis/basic_commands.g
+// Get implements Redis GET command
+func (r *RedisWrapper) Get(args []string) string {
+	// TODO: Lab 6.1
+
+	return "$-1\r\n" // Key not found
 }
 ```
 查询一个`key`的值, 如果不存在则返回`nil`。
 
 你可能需要再此时判断一下`key`是否已经过期, 如果已经过期则删除该`key`。
 
+**Hints**:
+- `pkg/redis/redis_wrapper.go`中有一些辅助函数需要你实现:
+  - `func (r *RedisWrapper) getEngineValue(key string) (*string, error)`函数是调用`LSM Engine`查询物理上的键值对的方法, 这里查询之后可能涉及一些判断类型是否合法、查询结果是否删除、过期等操作，因此其比`put`涉及的内容更多, 建议你将查询接口单独实现以便于复用, 当然这不是必须的
+  - `func (r *RedisWrapper) isExpired(expireValue string) bool`函数用于判断一个`key`是否已经过期, 建议你实现次函数以便于后续复用
+  - `pkg/redis/redis_wrapper.go`中的`func (r *RedisWrapper) getExpireTime(seconds int64) string`函数用于将一个`int64`类型的时间转换为一个`string`类型的时间, 建议你实现次函数以便于后续复用
+- `pkg/redis/redis_wrapper.go`中还有一些实现好的辅助函数可能会对你有帮助:
+  - `func (r *RedisWrapper) getExpireKey(key string) string`
+
 ## 4.5 incr && decr
-```cpp
-std::string RedisWrapper::redis_incr(const std::string &key) {
-  // TODO: Lab 6.1 自增一个值类型的key
-  // ? 不存在则新建一个值为1的key
-  return "1";
+```go
+// Incr implements Redis INCR command
+func (r *RedisWrapper) Incr(args []string) string {
+	// TODO: Lab 6.1
+
+	return "-ERR " + "xxx" + "\r\n"
 }
 
-std::string RedisWrapper::redis_decr(const std::string &key) {
-  // TODO: Lab 6.1 自增一个值类型的key
-  // ? 不存在则新建一个值为-1的key
-  return "-1";
+// Decr implements Redis DECR command
+func (r *RedisWrapper) Decr(args []string) string {
+	// TODO: Lab 6.1
+
+	return "-ERR " + "xxx" + "\r\n"
 }
 ```
 对一个值类型的`key`进行自增或自减操作, 如果不存在则新建一个值为1或-1的`key`。
@@ -179,12 +135,13 @@ std::string RedisWrapper::redis_decr(const std::string &key) {
 如果该键值对的值不是数值类型, 则返回`error`。在`RESP`中如何表示`error`你需要自行回顾[Lab 6 Redis 兼容](./lab6-Redis.md)中的简单介绍, 或者看官方文档(甚至是问LLM)。
 
 ## 4.6 del
-```cpp
-std::string RedisWrapper::redis_del(std::vector<std::string> &args) {
-  // TODO: Lab 6.1 删除一个key
-  int del_count = 0;
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":" + std::to_string(del_count) + "\r\n";
+```go
+// Del implements Redis DEL command
+func (r *RedisWrapper) Del(args []string) string {
+	// TODO: Lab 6.1
+	delCount := 0
+
+	return fmt.Sprintf(":%d\r\n", delCount)
 }
 ```
 删除一个`key`。
@@ -192,18 +149,7 @@ std::string RedisWrapper::redis_del(std::vector<std::string> &args) {
 # 5 测试
 完成上面的代码后, 你可以运行以下命令并通过对应的测试:
 ```bash
-✗ xmake
-[100%]: build ok, spent 2.013s
-✗ xmake run test_redis
-[==========] Running 11 tests from 1 test suite.
-[----------] Global test environment set-up.
-[----------] 11 tests from RedisCommandsTest
-[ RUN      ] RedisCommandsTest.SetAndGet
-[       OK ] RedisCommandsTest.SetAndGet (12 ms)
-[ RUN      ] RedisCommandsTest.IncrAndDecr
-[       OK ] RedisCommandsTest.IncrAndDecr (9 ms)
-[ RUN      ] RedisCommandsTest.Expire
-[       OK ] RedisCommandsTest.Expire (2014 ms)
-[ RUN      ] RedisCommandsTest.HSetAndHGet # Failed
+✗ go test ./pkg/redis/
 ```
+正常情况下, 你应该能通过`TestRedisWrapperBasicOperations`, `TestRedisWrapperDel`, `TestRedisWrapperIncrDecr`, `TestRedisWrapperExpire`这几个基本的单元测试
 

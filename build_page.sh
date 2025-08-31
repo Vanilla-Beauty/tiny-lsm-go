@@ -9,12 +9,12 @@ if [ -z "$1" ]; then
 fi
 
 rm -rf book
-rm -rf ../tiny-lsm-web/book
+rm -rf ../tiny-lsm-go-web/book
 
 mdbook build
 
-mv book/ ../tiny-lsm-web/
-cd ../tiny-lsm-web
+mv book/ ../tiny-lsm-go-web/
+cd ../tiny-lsm-go-web
 git add -A
 git commit -m "$1"
 git push origin gh-pages

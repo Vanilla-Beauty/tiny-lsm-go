@@ -34,7 +34,7 @@
 
 # 3 布隆过滤器代码解读
 同样地, 我们解读下头文件的定义:
-```cpp
+```go
 class BloomFilter {
 public:
   // 构造函数，初始化布隆过滤器
@@ -95,7 +95,7 @@ $$k = \frac{m}{n} \cdot \ln(2)$$
 
 # 4 代码实现
 ## 4.1 构造函数
-```cpp
+```go
 // 构造函数，初始化布隆过滤器
 // expected_elements: 预期插入的元素数量
 // false_positive_rate: 允许的假阳性率
@@ -110,7 +110,7 @@ BloomFilter::BloomFilter(size_t expected_elements, double false_positive_rate)
 
 ## 4.2 hash
 如同之前介绍的, `hash`函数有很多个, 我们不可能手动写出一大堆候选函数出来, 因此这里你需要对`hash1`和`hash2`进行组合, 构造出新的哈希函数(`idx`标识这是第几个哈希函数):
-```cpp
+```go
 size_t BloomFilter::hash(const std::string &key, size_t idx) const {
   // TODO: Lab 4.9: 计算哈希值
   // ? idx 标识这是第几个哈希函数
@@ -121,7 +121,7 @@ size_t BloomFilter::hash(const std::string &key, size_t idx) const {
 
 ## 4.3 add
 添加记录时, 我们根据哈希函数的序号, 调用你之前实现的`hash`函数, 将结果对位数组的长度取模, 将结果作为索引, 将索引位置的位设置为1:
-```cpp
+```go
 void BloomFilter::add(const std::string &key) {
   // TODO: Lab 4.9: 添加一个记录到布隆过滤器中
 }
@@ -129,7 +129,7 @@ void BloomFilter::add(const std::string &key) {
 
 ## 4.4 encode/decode
 与缓存池不同, 布隆过滤器需要持久化到文件系统中。这是因为我们的`Block`在形成后就是只读的形式了, 不会发生变化。如果不持久化到文件系统中, 那么在重启时, 我们就则需要对每个键值对再次进行解码和哈希运算构造新的布隆过滤器实例， 这显然是不合理的。因此你需要实现编码和解码函数:
-```cpp
+```go
 // 编码布隆过滤器为 std::vector<uint8_t>
 std::vector<uint8_t> BloomFilter::encode() {
   // TODO: Lab 4.9: 编码布隆过滤器

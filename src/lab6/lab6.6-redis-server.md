@@ -4,32 +4,142 @@
 
 这一部分内容其实也很简单，网络框架作者已经为你搭建好了，你只需要实现`Resp`请求的解析, 利用解析出的参数调用我们之前实现的各个命令的接口即可。
 
-> 在初版的`Lab`中, 我们使用了`muduo`作为网络框架, 但由于`muduo`仅支持`Linux`, 因此在后续版本中我们将其替换为`asio`, 这是一个跨平台的网络库, 支持`Windows`, `MacOS`和`Linux`。使用`asio`后，本实验可以在所有主流操作系统上运行: `Linux`+`MacOS`+`Windows`(`Wsl`)
 
-# 2 代码实现
+# 2 代码说明
+## 2.1 整体架构
 这节课你可以修改`server`文件夹下的任何文件
 ```bash
-├── server # 调用 Redis 兼容层的 Webserver
-│   ├── include
-│   │   └── handler.h # Redis 命令处理函数的声明
-│   └── src
-│       ├── handler.cpp # Redis 命令处理函数的实现, 就是对 redis_wrapper 的转发
-│       └── server.cpp # Webserver 的实现
+server
+├── main.go # 主函数
+└── server.go # 封装的类
 ```
 
-你需要实现的接口为:
-```cpp
-  std::string handleRequest(const std::string &request) {
-    // TODO: Lab 6.6 处理网络传输的RESP字节流
-    // TODO: Lab 6.6 形成参数并调用 redis_wrapper 的api
-    // TODO: Lab 6.6 返回结果
-    return "";
-  }
+首先看一看`RedisServer`这个结构体
+```go
+// RedisServer represents a simple Redis server implementation
+type RedisServer struct {
+	address string
+	redis   *redis.RedisWrapper
+	ln      net.Listener
+	wg      sync.WaitGroup
+	quit    chan interface{}
+}
 ```
+其就是对我们之前实现的`RedisWrapper`的包装, 然后, 这里`Redis`的`RESP`是位于`TCP/IP`这一层的协议, 因此我们没有使用第三方库, 而是直接使用了`net`包。
 
-`handleRequest`前后的网络包收发逻辑已经为你写好, 你只需要在这个函数中解析`RESP`协议, 调用`redis_wrapper`的接口即可。当然, 你也可以直接新增各种辅助函数。
 
 > 除了我们之前实现的各种命令外, 你还需要实现`PING`命令, 这个命令不需要任何参数, 只需要返回`"+PONG\r\n"`即可。其内在含义表示服务器正在运行。
+
+## 2.2 重点函数
+这里我们自底向上来看代码, 从最接近我们的`RedisWrapper`结构体的地方查看
+### 2.2.1 命令转发函数
+最接近我们的`RedisWrapper`结构体方法的函数是`func (s *RedisServer) processCommand(args []string) string`:
+```go
+func (s *RedisServer) processCommand(args []string) string {
+	if len(args) == 0 {
+		return "-ERR empty command\r\n"
+	}
+
+	command := strings.ToUpper(args[0])
+
+	switch command {
+	case "PING":
+		if len(args) > 1 {
+			return fmt.Sprintf("$%d\r\n%s\r\n", len(args[1]), args[1])
+		}
+		return "+PONG\r\n"
+	case "SET":
+		return s.redis.Set(args)
+	case "GET":
+		return s.redis.Get(args)
+	case "DEL":
+		return s.redis.Del(args)
+	case "INCR":
+		return s.redis.Incr(args)
+	case "DECR":
+		return s.redis.Decr(args)
+	case "HSET":
+		return s.redis.HSet(args)
+	case "HGET":
+		return s.redis.HGet(args)
+	// case "HGETALL":
+	// return s.redis.HGetAll(args)
+	case "EXPIRE":
+		return s.redis.Expire(args)
+	case "TTL":
+		return s.redis.TTL(args)
+	case "LPUSH":
+		return s.redis.LPush(args)
+	case "RPUSH":
+		return s.redis.RPush(args)
+	case "LPOP":
+		return s.redis.LPop(args)
+	case "RPOP":
+		return s.redis.RPop(args)
+	case "LLEN":
+		return s.redis.LLen(args)
+	case "SADD":
+		return s.redis.SAdd(args)
+	case "SREM":
+		return s.redis.SRem(args)
+	case "SISMEMBER":
+		return s.redis.SIsMember(args)
+	case "SMEMBERS":
+		return s.redis.SMembers(args)
+	case "ZADD":
+		return s.redis.ZAdd(args)
+	case "ZREM":
+		return s.redis.ZRem(args)
+	case "ZRANGE":
+		return s.redis.ZRange(args)
+	case "ZCARD":
+		return s.redis.ZCard(args)
+	case "FLUSHALL":
+		err := s.redis.FlushAll()
+		if err != nil {
+			return "-ERR " + err.Error() + "\r\n"
+		}
+		return "+OK\r\n"
+	case "QUIT":
+		return "+OK\r\n"
+	default:
+		return "-ERR unknown command '" + command + "'\r\n"
+	}
+}
+```
+这个函数就是我们实际的业务函数, 再次之前你需要先解析出这个`args`包应该转发到哪个`API`, 这就是你需要在`handleConnection`中做的事情
+
+### 2.2.2 RESP协议解析函数
+`handleConnection`函数需要你完成`RESP`协议的解析和转发工作, 如果你不熟悉`Go`的网络编程, 没关系, 作者已经为你准备好了框架:
+```go
+// handleConnection processes commands from a client connection
+func (s *RedisServer) handleConnection(conn net.Conn) {
+	// TODO: Lab 6.6
+
+	// TODO: concurrent control
+
+	reader := bufio.NewReader(conn)
+
+	for {
+		// Read RESP command
+		args, _ := s.readRESPCommand(reader)
+		// TODO: you may add codes here
+		response := s.processCommand(args)
+		logger.Info(response)
+		// TODO: you may add codes here
+	}
+}
+```
+
+这里接受网络包后, 交由`readRESPCommand`接续具体的命令, 该函数也需要你实现:
+```cpp
+// readRESPCommand reads a RESP command from the reader
+func (s *RedisServer) readRESPCommand(reader *bufio.Reader) ([]string, error) {
+	// TODO: Lab 6.6
+	return nil, nil
+}
+```
+
 
 # 3 测试
 你可以安装并使用`redis-cli`来测试你的`Redis`服务器, 过程为
@@ -168,6 +278,8 @@ HSET: 123456.79 requests per second, p50=0.583 msec
 ZADD: 126422.25 requests per second, p50=0.615 msec
 ```
 
+> 以上测试结果是作者`cpp`版本, `go`版本作者故意削弱了一些性能, 你的结果很困难与以上的结果有较大差距, 因此你可以通过下一节选作的`bonus lab`来优化这里的性能
+
 > 启动测试时, 你需要确保以下几点:
 > 1. 使用`release`模型编译
 > 2. 更改日志级别为`info`, 否则会输出大量日志, 影响测试结果。你如果确定代码没有bug，甚至可以关闭日志输出
@@ -189,4 +301,4 @@ ZADD: 137362.64 requests per second, p50=0.535 msec
 这里我们对`SET,GET,INCR,SADD,HSET,ZADD`命令的实现的性能与`redis-server`的性能相近, 且有些许性能优势。你可以对比你自己的实现和`redis-server`的QPS, 预期的结果是与`redis-server`的QPS在同一数量级。
 
 **压测之后呢?**
-这里的压测本身不是我们的目的, 你需要关注的是压测反映出的性能不足问题, 并修改相应代码的实现。
+这里的压测本身不是我们的目的, 你需要关注的是压测反映出的性能不足问题, 并修改相应代码的实现, 这也是你在`bonus lab`中的工作。

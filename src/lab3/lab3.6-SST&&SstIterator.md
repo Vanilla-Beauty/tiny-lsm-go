@@ -6,7 +6,7 @@
 
 ## 1.1 SST 的定义
 同样，我们先看`SST`的定义：
-```cpp
+```go
 class SST : public std::enable_shared_from_this<SST> {
 private:
   FileObj file;
@@ -31,7 +31,7 @@ private:
 
 ## 1.2 SstIterator 的定义
 然后是`SstIterator`的定义:
-```cpp
+```go
 class SstIterator : public BaseIterator {
   // friend xxx
 
@@ -59,7 +59,7 @@ private:
 # 2 SST 基础代码实现
 ## 2.1 打开 SST 文件
 你需要实现`SST：：open`函数:
-```cpp
+```go
 // 头文件中将其定义为静态函数
 std::shared_ptr<SST> SST::open(size_t sst_id, FileObj file,
                                std::shared_ptr<BlockCache> block_cache) {
@@ -76,7 +76,7 @@ std::shared_ptr<SST> SST::open(size_t sst_id, FileObj file,
 
 ## 2.2 加载 Block
 在接受其他组件的查询请求后, `SST`会根据元信息定位请求的`key`可能位于哪一个`Block`(因为`BlockMeta`中存储了首尾的`key`), 接下来就是读取这个`Blcok`, 这就是你需要实现的`read_block`函数:
-```cpp
+```go
 std::shared_ptr<Block> SST::read_block(size_t block_idx) {
   // TODO: Lab 3.6 根据 block 的 id 读取一个 `Block`
   return nullptr;
@@ -89,7 +89,7 @@ std::shared_ptr<Block> SST::read_block(size_t block_idx) {
 > 3. 返回前别忘了更新缓存池
 
 ## 2.3 根据 key 查询 Block
-```cpp
+```go
 size_t SST::find_block_idx(const std::string &key) {
   // 先在布隆过滤器判断key是否存在
   // TODO: Lab 3.6 二分查找
@@ -106,7 +106,7 @@ size_t SST::find_block_idx(const std::string &key) {
 # 3 SstIterator 代码实现
 ## 3.1 SstIterator 定位函数
 你需要实现下面的迭代器定位函数:
-```cpp
+```go
 void SstIterator::seek_first() {
   // TODO: Lab 3.6 将迭代器定位到第一个key
 }
@@ -122,7 +122,7 @@ void SstIterator::seek(const std::string &key) {
 
 ## 3.2 运算符重载函数
 作为迭代器, 我们的惯例就行要实现下面几个运算符重载函数:
-```cpp
+```go
 BaseIterator &SstIterator::operator++() {
   // TODO: Lab 3.6 实现迭代器自增
   return *this;
@@ -146,7 +146,7 @@ SstIterator::value_type SstIterator::operator*() const {
 
 # 4 补全 SST
 在实现了`SstIterator`后, 你可以补全以`SST`中以`SstIterator`作为返回值的几个函数:
-```cpp
+```go
 SstIterator SST::get(const std::string &key, uint64_t tranc_id) {
   // TODO: Lab 3.6 根据查询`key`返回一个迭代器
   // ? 如果`key`不存在, 返回一个无效的迭代器即可

@@ -33,7 +33,7 @@ WAL的优势不仅在于数据安全，还在于其高性能和可扩展性。�
 
 ## 1.3 Record 代码概览
 基于我们之前的描述, 我们来看看`Record`中每一类记录项的定义:
-```cpp
+```go
 // include/wal/record.h
 class Record {
 private:
@@ -88,7 +88,7 @@ private:
 
 ## 2.1 构造函数
 这里的构造函数其实是一系列静态函数, 其们会根据不同的操作类型构造不同的`Record`实例, 你需要实现这些静态函数:
-```cpp
+```go
 Record Record::createRecord(uint64_t tranc_id) {
   // TODO: Lab 5.3 实现创建事务的Record
   return {};
@@ -116,7 +116,7 @@ Record Record::deleteRecord(uint64_t tranc_id, const std::string &key) {
 
 ## 2.2 编解码函数
 接下来是接触的编解码函数, 这里你只需要编解码成字节数组即可, 文件IO相关操作你在下一个`Lab`实现:
-```cpp
+```go
 std::vector<uint8_t> Record::encode() const {
   // TODO: Lab 5.3 实现Record的编码函数
   return {};

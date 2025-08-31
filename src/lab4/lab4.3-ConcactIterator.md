@@ -32,7 +32,7 @@ Level 2: sst_08(key100-key120), sst_09(key121-key140)
 - `include/sst/concact_iterator.h` (Optional)
 ## 2.1 头文件分析
 按照惯例, 我们简单分析下头文件定义:
-```cpp
+```go
 class ConcactIterator : public BaseIterator {
 private:
   SstIterator cur_iter;
@@ -47,7 +47,7 @@ private:
 
 ## 2.2 ConcactIterator 实现
 这一章由于我们先介绍了`Compact`过程中的逻辑, 因此就先实现最简单的一个`ConcactIterator`:
-```cpp
+```go
 BaseIterator &ConcactIterator::operator++() {
   // TODO: Lab 4.3 自增运算符重载
   return *this;

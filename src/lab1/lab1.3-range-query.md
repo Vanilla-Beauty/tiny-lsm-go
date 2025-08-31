@@ -25,7 +25,7 @@
 # 2 实现
 ## 2.1 前缀查询
 你需要实现这两个函数：
-```cpp
+```go
 // 找到前缀的起始位置
 // 返回第一个前缀匹配或者大于前缀的迭代器
 SkipListIterator SkipList::begin_preffix(const std::string &preffix) {
@@ -49,7 +49,7 @@ SkipListIterator SkipList::end_preffix(const std::string &prefix) {
 我们需要逐层次实现这个支持谓词的查询接口，其返回一组迭代器表示`start`和`end`, 这里我们还是要利用`SkipList`的有序性多层不同步长的链表来实现快速的匹配查询。
 
 你需要实现下面的函数:
-```cpp
+```go
 // ? 这里单调谓词的含义是, 整个数据库只会有一段连续区间满足此谓词
 // ? 例如之前特化的前缀查询，以及后续可能的范围查询，都可以转化为谓词查询
 // ? 返回第一个满足谓词的位置和最后一个满足谓词的迭代器
@@ -79,7 +79,7 @@ SkipList::iters_monotony_predicate(
 
 # 3 测试
 完成上面的函数后, 你应该可以通过除了`SkipListTest.TransactionId`外所有的`test/test_skiplist.cpp`的单元测试:
-```cpp
+```go
 ✗ xmake
 [100%]: build ok, spent 5.785s
 ✗ xmake run test_skiplist

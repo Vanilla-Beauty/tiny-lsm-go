@@ -45,7 +45,7 @@ SkipList1 (id=1): ("k2", "v2") -> ("k3", "v3") -> ("k4", "v4")
 - `include/memtable/memtable.h` (Optional)
 
 首先是`SearchItem`, 我们来看定义:
-```cpp
+```go
 // *************************** SearchItem ***************************
 struct SearchItem {
   std::string key_;
@@ -67,7 +67,7 @@ bool operator==(const SearchItem &a, const SearchItem &b);
 其就是我们之前提到的每个堆节点的数据结构, 这里的构造函数中, `k, v, i`即为`key`, `value`, `id`(跳表的), `l`表示来源的层级, 现在我们都是在内存操作, 设为`0`即可, `tranc_id`不需要你理解, 直接赋值即可。
 
 然后是你要实现的迭代器`HeapIterator`的定义:
-```cpp
+```go
 class HeapIterator : public BaseIterator {
 public:
   HeapIterator() = default;
@@ -88,7 +88,7 @@ private:
 > 在`C++`中，当使用` std::priority_queue` 来实现小根堆（min-heap）时，你需要使用` std::greater<SearchItem>` 作为比较函数对象。感兴趣的同学可以查一查为什么要这么设计。
 
 ## 3.2 实现 `SearchItem` 的比较规则
-```cpp
+```go
 bool operator<(const SearchItem &a, const SearchItem &b) {
   // TODO: Lab2.2 实现比较规则
   return true;
@@ -109,7 +109,7 @@ bool operator==(const SearchItem &a, const SearchItem &b) {
 
 ## 3.3 实现构造函数
 接下来你需要实现`HeapIterator`的构造函数, 其参数就是已经遍历了所有`Skiplist`的迭代器构造的`vector`, `max_tranc_id`你可以暂时忽略:
-```cpp
+```go
 HeapIterator::HeapIterator(std::vector<SearchItem> item_vec,
                            uint64_t max_tranc_id)
     : max_tranc_id_(max_tranc_id) {
@@ -124,7 +124,7 @@ HeapIterator::HeapIterator(std::vector<SearchItem> item_vec,
 1. 自增后的`key`不能是之前相同的`key`, 如果是(以为着实际上被前者覆写了), 则跳过
 2. 自增后的键值对不能是删除标记, 即`value`为空
 
-```cpp
+```go
 BaseIterator &HeapIterator::operator++() {
   // TODO: Lab2.2 实现 ++ 重载
   return *this;
@@ -132,7 +132,7 @@ BaseIterator &HeapIterator::operator++() {
 ```
 
 同时, 这些辅助函数的实现有助于你完成`:operator++()`和之前的构造函数:
-```cpp
+```go
 bool HeapIterator::top_value_legal() const {
   // TODO: Lab2.2 判断顶部元素是否合法
   // ? 被删除的值是不合法
@@ -147,7 +147,7 @@ void HeapIterator::skip_by_tranc_id() {
 
 ## 3.4 其他运算符重载函数
 其他运算符重载函数就简单了很多, 但仍然是对你代码理解的考验:
-```cpp
+```go
 HeapIterator::pointer HeapIterator::operator->() const {
   // TODO: Lab2.2 实现 -> 重载
   return nullptr;
@@ -175,7 +175,7 @@ bool HeapIterator::operator!=(const BaseIterator &other) const {
 ```
 
 其中`->`运算符重载, 你可以直接利用已有的成员变量`mutable std::shared_ptr<value_type> current`, 返回器地址, 但你需要在构造函数和自增函数中对其进行正确的初始化和重置, 下面这个函数即为初始化和重置的逻辑实现:
-```cpp
+```go
 void HeapIterator::update_current() const {
   // current 缓存了当前键值对的值, 你实现 -> 重载时可能需要
   // TODO: Lab2.2 更新当前缓存值
@@ -184,7 +184,7 @@ void HeapIterator::update_current() const {
 
 # 4 MemTable的迭代器
 接下来, 有了`HeapIterator`, 你可以实现`MemTable`组件的全局迭代器了:
-```cpp
+```go
 HeapIterator MemTable::begin(uint64_t tranc_id) {
   // TODO Lab 2.2 MemTable 的迭代器
   return {};

@@ -8,7 +8,7 @@
 
 ## 2 全局迭代器
 现在你已经有了各种各样的迭代器，那么`LSMEngine`的`begin/end`自然也不在话下了:
-```cpp
+```go
 Level_Iterator LSMEngine::begin(uint64_t tranc_id) {
   // TODO: Lab 4.7
   throw std::runtime_error("Not implemented");
@@ -23,7 +23,7 @@ Level_Iterator LSMEngine::end() {
 
 ## 3 范围查询
 最后, 比全局迭代器稍微复杂的是谓词查询:
-```cpp
+```go
 std::optional<std::pair<TwoMergeIterator, TwoMergeIterator>>
 LSMEngine::lsm_iters_monotony_predicate(
     uint64_t tranc_id, std::function<int(const std::string &)> predicate) {

@@ -4,7 +4,7 @@
 为什么要将`Level_Iterator`放在`Compact`之后呢? 当然是因为`Compact`之后, 我们才有了`Level`的概念, 才能对某个`Level`的所有键值对进行迭代.
 
 `Level_Iterator`的实现其实非常简单了, 与`TwoMergeIterator`非常类似, 只不过整合的迭代器数量是不定的, 用一个`vector`存储, 我们先简单看看定义:
-```cpp
+```go
 class Level_Iterator : public BaseIterator {
   // ...
 
@@ -30,7 +30,7 @@ private:
 - `include/lsm/level_iterator.h` (Optional)
 
 ## 2.1 迭代器初始化
-```cpp
+```go
 Level_Iterator::Level_Iterator(std::shared_ptr<LSMEngine> engine,
                                uint64_t max_tranc_id)
     : engine_(engine), max_tranc_id_(max_tranc_id), rlock_(engine_->ssts_mtx) {
@@ -44,7 +44,7 @@ Level_Iterator::Level_Iterator(std::shared_ptr<LSMEngine> engine,
 
 ## 2.2 运算符重载
 接下来就是我们的传统艺能————运算符函数重载了:
-```cpp
+```go
 BaseIterator &Level_Iterator::operator++() {
   // TODO: Lab 4.6 ++ 重载
   return *this;
@@ -74,7 +74,7 @@ BaseIterator::pointer Level_Iterator::operator->() const {
 类似地, 你可以先看看接下来要实现的一些辅助功能函数, 也许你会在实现这些运算符重载时需要用到它们。
 
 ## 2.3 辅助函数
-```cpp
+```go
 std::pair<size_t, std::string> Level_Iterator::get_min_key_idx() const {
   // TODO: Lab 4.6 获取当前 key 最小的迭代器在 iter_vec 中的索引和具体的 key
   return {};

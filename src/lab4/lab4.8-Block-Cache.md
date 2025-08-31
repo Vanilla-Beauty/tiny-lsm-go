@@ -24,7 +24,7 @@
 这里采用一个简化的`LRU-K`实现, 我们不需要记录访问的时间戳, 而是用链表的顺序来表达最新的访问记录, 最新的访问置于链表头部。另一方面，为保证快速查询，我们还需要一个哈希表，这个哈希表的索引键为`std::pair<sst_id, block_id>`， 索引值为链表的迭代器， 因此结合二者可以简单实现查询和新增均为`O(1)`的缓存池。那怎么表达`LRU-K`呢? 很简单, 采用2个链表, 一个存储访问次数少于`k`次的缓存项, 一个存储访问次数大于等于`k`次的缓存项。
 
 首先看一下头文件的关键定义:
-```cpp
+```go
 struct CacheItem {
   int sst_id;
   int block_id;
@@ -85,14 +85,14 @@ private:
 - `include/block/block_cache.h` (Optional)
 
 要实现的函数也很简单, 首先是插入一个`Block`到缓存池:
-```cpp
+```go
 void BlockCache::put(int sst_id, int block_id, std::shared_ptr<Block> block) {
   // TODO: Lab 4.8 插入一个 Block
 }
 ```
 
 然后是查询一个`Block`:
-```cpp
+```go
 std::shared_ptr<Block> BlockCache::get(int sst_id, int block_id) {
   // TODO: Lab 4.8 查询一个 Block
   return nullptr;
@@ -100,14 +100,14 @@ std::shared_ptr<Block> BlockCache::get(int sst_id, int block_id) {
 ```
 
 最后是一些辅助函数, 比如你在插入和查询时, 需要更新相应`Block`的统计信息:
-```cpp
+```go
 void BlockCache::update_access_count(std::list<CacheItem>::iterator it) {
   // TODO: Lab 4.8 更新统计信息
 }
 ```
 
 具体更新什么统计信息呢? 除了要保证缓存池的基础运行逻辑正确外, 你看到这个获取命中率的函数可能有所启发:
-```cpp
+```go
 double BlockCache::hit_rate() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return total_requests_ == 0

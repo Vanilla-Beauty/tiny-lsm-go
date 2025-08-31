@@ -10,7 +10,7 @@
 - `src/sst/sst_iterator.cpp`
 
 你需要实现`sst_iters_monotony_predicate`函数:
-```cpp
+```go
 // predicate返回值:
 //   0: 谓词
 //   >0: 不满足谓词, 需要向右移动

@@ -180,7 +180,7 @@
 
 ## 5.1 新`SST`的构造
 `gen_sst_from_iter`从一个迭代器中构造新的`SST`, 新的`SST`的容量上限为`target_sst_size`, 新的`SST`的层级为`target_level`。 也就是说, 假设迭代器中所有键值对的容量是`128 MB`, 而`target_sst_size = 32MB`, 那么你需要构造4个`SST`。
-```cpp
+```go
 std::vector<std::shared_ptr<SST>>
 LSMEngine::gen_sst_from_iter(BaseIterator &iter, size_t target_sst_size,
                              size_t target_level) {
@@ -191,7 +191,7 @@ LSMEngine::gen_sst_from_iter(BaseIterator &iter, size_t target_sst_size,
 ```
 
 这里, `SST`的命名规则参照`get_sst_path`:
-```cpp
+```go
 std::string LSMEngine::get_sst_path(size_t sst_id, size_t target_level) {
   // sst的文件路径格式为: data_dir/sst_<sst_id>，sst_id格式化为32位数字
   std::stringstream ss;
@@ -202,13 +202,13 @@ std::string LSMEngine::get_sst_path(size_t sst_id, size_t target_level) {
 ```
 
 > `sst`的`id`的分配可以简单地按照如下操作获取:
-> ```cpp
+> ```go
 > size_t sst_id = next_sst_id++
 > ```
 
 ## 5.2 full_l0_l1_compact
 `full_l0_l1_compact`负责将`L0`层和`L1`层的`SST`合并到`L1`层, 因为`L0`层的`SST`之间是不排序且存在重叠的, 因此你需要结合之前实现的迭代器对其进行排序和去重, 并和`L1`迭代器整合成新的迭代器, 出入你刚刚实现的`gen_sst_from_iter`函数, 完成新的`SST`的构造:
-```cpp
+```go
 std::vector<std::shared_ptr<SST>>
 LSMEngine::full_l0_l1_compact(std::vector<size_t> &l0_ids,
                               std::vector<size_t> &l1_ids) {
@@ -221,7 +221,7 @@ LSMEngine::full_l0_l1_compact(std::vector<size_t> &l0_ids,
 
 ## 5.2 full_common_compact
 `full_common_compact`负责其他相邻`Level`的`SST`合并, 你需要参考`full_l0_l1_compact`的实现, 完成其他相邻`Level`的`SST`合并。这里应该会更简单，因为这里相邻的两个`Level`的`SST`之间是排序且不重叠的, 因此单个`Level`的迭代器都是相同的类型:
-```cpp
+```go
 std::vector<std::shared_ptr<SST>>
 LSMEngine::full_common_compact(std::vector<size_t> &lx_ids,
                                std::vector<size_t> &ly_ids, size_t level_y) {
@@ -233,7 +233,7 @@ LSMEngine::full_common_compact(std::vector<size_t> &lx_ids,
 
 # 5.3 full_compact
 `full_compact`负责整个`Compact`流程, 你需要根据`Compact`策略设计, 完成这个函数。另外, 由于每次`compact`会导致目标`Level`的`SST`数量增加, 因此这个`compact`流程可能会哦递归地进行, 你需要在`full_compact`中控制这个递归过程。也就是说，你需要按照我们之前描述的策略控制之前实现的`full_common_compact`和`full_l0_l1_compact`的调用:
-```cpp
+```go
 void LSMEngine::full_compact(size_t src_level) {
   // TODO: Lab 4.5 负责完成整个 full compact
   // ? 你可能需要控制`Compact`流程需要递归地进行
@@ -306,7 +306,7 @@ LSM_SST_LEVEL_RATIO = 4
 > ```
 
 你只需要关注这个测例:
-```cpp
+```go
 // test/test_lsm.cpp
 TEST_F(LSMTest, Persistence) {
     // ...

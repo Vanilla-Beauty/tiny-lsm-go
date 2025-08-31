@@ -6,7 +6,7 @@
 区别在于，`SSTBuilder`这个类的实例只在`SST文件`构建过程中存在, 其是可写的数据结构, 构建过程可不断添加键值对进行编码。在其调用`Build`后，其会将自身数据编码为`SST文件`， 并转化为一个`SST`类实例, `SST`类本质上就是`SST文件`的控制结构。
 
 这样说起来可能不好理解, 让我们结合代码将这个过程具体化, 先看其`SSTBuilder`和`SST`的头文件定义:
-```cpp
+```go
 class SST : public std::enable_shared_from_this<SST> {
   // ...  
 private:
@@ -73,7 +73,7 @@ public:
 
 `SSTBuilder`中的`block`成员变量即为当前正在构建的`Block`, `add`函数不断接受上部组件传递的键值对, 并将键值对添加到当前正在构建的`Block`中, 当`Block`容量达到阈值时, 将`Block`写入`data`数组, 并创建一个新的`Block`继续构建。
 构建结束后，这个`data`数组就包含了多个`Block`的编码字节, 经进一步处理后即可刷盘形成`SST`:
-```cpp
+```go
 void SSTBuilder::add(const std::string &key, const std::string &value,
                      uint64_t tranc_id) {
   // TODO: Lab 3.5 添加键值对
@@ -85,7 +85,7 @@ void SSTBuilder::add(const std::string &key, const std::string &value,
 
 ## 2.2 SSTBuilder::finish_block 函数
 根据前文介绍可知, `SSTBuilder`只有一个活跃的`block`支持插入键值对进行构建, 超出阈值后其将会编码为`Block`并写入`data`数组, 这个过程就是`SSTBuilder::finish_block`函数的功能:
-```cpp
+```go
 void SSTBuilder::finish_block() {
   // TODO: Lab 3.5 构建块
   // ? 当 add 函数发现当前的`block`容量超出阈值时，需要将其编码到`data`，并清空`block`
@@ -94,7 +94,7 @@ void SSTBuilder::finish_block() {
 
 ## 2.3 SSTBuilder::build 函数
 当上层组件已经将所有键值对插入到`SSTBuilder`中后，调用`SSTBuilder::build`函数即可完成`SST`文件的构建, 其会返回一个`SST`指针:
-```cpp
+```go
 std::shared_ptr<SST>
 SSTBuilder::build(size_t sst_id, const std::string &path,
                   std::shared_ptr<BlockCache> block_cache) {

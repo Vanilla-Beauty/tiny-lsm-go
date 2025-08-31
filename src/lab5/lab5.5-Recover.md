@@ -86,7 +86,7 @@ COMMIT TX100
 -> LSM::LSM 构造函数结束
 ```
 
-```cpp
+```go
 std::map<uint64_t, std::vector<Record>>
 WAL::recover(const std::string &log_dir, uint64_t max_flushed_tranc_id) {
   // TODO: Lab 5.5 检查需要重放的WAL日志
@@ -105,7 +105,7 @@ T4 recover
 `WAL::recover`函数就是整理需要重放的`WAL`日志, 返回一个`map`, 其中`key`为事务`id`, `value`为该事务的所有`WAL`操作记录
 
 ## 2.2 TranManager::check_recover
-```cpp
+```go
 std::map<uint64_t, std::vector<Record>> TranManager::check_recover() {
   // TODO: Lab 5.5
   return {};
@@ -117,14 +117,14 @@ std::map<uint64_t, std::vector<Record>> TranManager::check_recover() {
 
 ## 2.3 WAL 初始化
 在重放完成后，需要重新初始化 WAL，以便后续事务的日志记录：
-```cpp
+```go
 void TranManager::init_new_wal() {
   // TODO: Lab 5.5 初始化 wal
 }
 ```
 
 这里你也需要回顾一下`TranManager`的头文件定义:
-```cpp
+```go
 class TranManager : public std::enable_shared_from_this<TranManager> {
 public:
   // ...
@@ -140,7 +140,7 @@ private:
 
 ## 2.4 LSM 的构造函数
 你需要在`LSM`的构造函数中调用之前实现的`WAL`重放检查相关的函数, 并将重放的`WAL`日志应用到`LSM`中, 在之后你需要重新初始化`WAL`组件:
-```cpp
+```go
 LSM::LSM(std::string path)
     : engine(std::make_shared<LSMEngine>(path)),
       tran_manager_(std::make_shared<TranManager>(path)) {

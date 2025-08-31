@@ -35,7 +35,7 @@
 
 ## 2.1 引擎的初始化
 上一章[Lab 4.1 Engine 的写入](./lab4.1-Engine-write.md)中, 我们在`put`操作中惰性触发了`SST`的刷盘操作, 因此在`Engine`启动时, 我们需要遍历`data_dir`下的`SST`文件, 将`SST`文件的元信息加载到内存中, 以便后续的查询操作:
-```cpp
+```go
 LSMEngine::LSMEngine(std::string path) : data_dir(path) {
   // 初始化日志
   init_spdlog_file();
@@ -56,7 +56,7 @@ LSMEngine::LSMEngine(std::string path) : data_dir(path) {
 
 ## 2.2 查询接口
 ### 2.2.1 get
-```cpp
+```go
 std::optional<std::pair<std::string, uint64_t>>
 LSMEngine::get(const std::string &key, uint64_t tranc_id) {
   // TODO: Lab 4.2 查询
@@ -69,7 +69,7 @@ LSMEngine::get(const std::string &key, uint64_t tranc_id) {
 此外, 这里的返回值是一个由`optional`包裹的`pair`, `pair`的第一个元素是`value`, 第二个元素是`tranc_id`, `value`表示查询到的值, `tranc_id`表示这个键值对最新的修改事务的的`tranc_id`(现阶段同样可以忽略), 如果查询不到, 则返回`std::nullopt`
 
 ### 2.2.2 get_batch
-```cpp
+```go
 std::vector<
     std::pair<std::string, std::optional<std::pair<std::string, uint64_t>>>>
 LSMEngine::get_batch(const std::vector<std::string> &keys, uint64_t tranc_id) {
@@ -82,7 +82,7 @@ LSMEngine::get_batch(const std::vector<std::string> &keys, uint64_t tranc_id) {
 
 ### 2.2.3 sst_get_
 通过后缀你可以看出, 这个查询是专门在`SST`中进行查询的接口, 其`_`表示这个函数是不需要进行加锁操作的, 其加锁逻辑是其他上层组件控制的:
-```cpp
+```go
 std::optional<std::pair<std::string, uint64_t>>
 LSMEngine::sst_get_(const std::string &key, uint64_t tranc_id) {
   // TODO: Lab 4.2 sst 内部查询

@@ -5,7 +5,7 @@
 - `include/memtable/memtable.h` (Optional)
 
 同样的，我们先看看代码的头文件东一，从而了解我们的`MemTable`的整体实现思路:
-```cpp
+```go
 class MemTable {
     // ...
 private:
@@ -20,7 +20,7 @@ private:
 **最新的`Skiplist`放在`list`的`head`位置，最旧的`Skiplist`放在`list`的`tail`位置。**
 
 此外, 你在头文件中除了基础的`CRUD`函数外, 还会看到这个函数:
-```cpp
+```go
   std::shared_ptr<SST> flush_last(SSTBuilder &builder, std::string &sst_path,
                                   size_t sst_id,
                                   std::shared_ptr<BlockCache> block_cache);
@@ -30,7 +30,7 @@ private:
 
 # 2 put 的实现
 你首先要实现的是`put`系列的函数:
-```cpp
+```go
 void MemTable::put_(const std::string &key, const std::string &value,
                     uint64_t tranc_id) {
   // TODO: Lab2.1 无锁版本的 put
@@ -56,7 +56,7 @@ void MemTable::put_batch(
 
 # 3 get 的实现
 接下来实现`get`的一系列函数, 同样包括无锁版本与有锁版本, 并且你还需要实现不同部分的分阶段查询:
-```cpp
+```go
 SkipListIterator MemTable::cur_get_(const std::string &key, uint64_t tranc_id) {
   // 检查当前活跃的memtable
   // TODO: Lab2.1 从活跃跳表中查询
@@ -86,7 +86,7 @@ SkipListIterator MemTable::get_(const std::string &key, uint64_t tranc_id) {
 
 # 4 remove 实现
 最后, 插入`value`为空的键值对表示对数据的删除标记, 同样有不同的版本:
-```cpp
+```go
 void MemTable::remove_(const std::string &key, uint64_t tranc_id) {
   // TODO Lab2.1 无锁版本的remove
 }
@@ -106,7 +106,7 @@ void MemTable::remove_batch(const std::vector<std::string> &keys,
 
 至于这个函数的调用实际，作者建议是在每次`put`后检查容量是否超出阈值, 然后同步地调用该函数, 当然你也可以启用一个后台线程进行周期性检查。
 
-```cpp
+```go
 void MemTable::frozen_cur_table_() {
   // TODO: 冻结活跃表
 }

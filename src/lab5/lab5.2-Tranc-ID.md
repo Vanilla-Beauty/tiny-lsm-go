@@ -3,7 +3,7 @@
 
 # 1 事务的设计思想
 我们先给出一个完成后的`demo`, 演示我们的事务设计是如何工作的, 代码如下:
-```cpp
+```go
 #include "../include/lsm/engine.h"
 #include <iostream>
 #include <string>
@@ -53,7 +53,7 @@ int main() {
 # 2 事务管理器的设计方案
 ## 2.1 组件关系设计
 还记得我们之前实现的`LSm`和`LSMEngine`吗? 当时我们将`LSMEngine`包裹在`LSM`中, `LSMEngine`中封装了`memtable`, `sst`等组件, 我们却进一步将其封装在`LSM`中, 这样的目的就是在后续中加入其他同级别的组件, 例如本章的事务管理器, `LSM`的定义为:
-```cpp
+```go
 class LSM {
 private:
   std::shared_ptr<LSMEngine> engine;
@@ -67,7 +67,7 @@ public:
 
 ## 2.1 功能1-分配事务 id
 首先事务管理器的基础职责之一就是分配事务`id`, 我们看看其中一个`put`接口:
-```cpp
+```go
 class TranManager : public std::enable_shared_from_this<TranManager> {
 public:
   // ...
@@ -98,11 +98,11 @@ void LSM::put(const std::string &key, const std::string &value) {
 
 ## 2.2 功能2-分配事务上下文
 回顾我们之前的Demo:
-```cpp
+```go
 auto tranc_hanlder = lsm.begin_tran();
 ```
 这里的`begin_tran`会返回一个事务上下文(或者叫事务句柄也行), 我们可以在这个上下文中进行增删改查操作, 然后通过`commit`或`abort`函数完成提交事务或终结事务的流程. 我们看看这个上下文的定义:
-```cpp
+```go
 class TranContext {
   friend class TranManager;
 
@@ -150,8 +150,8 @@ private:
 
 ## 2.3 功能3-事务状态的维护
 我们继续看我们定义的事务管理器的其他成员:
-```cpp
-```cpp
+```go
+```go
 class TranManager : public std::enable_shared_from_this<TranManager> {
 private:
   mutable std::mutex mutex_;
@@ -188,7 +188,7 @@ private:
 ## 3.1 事务上下文的创建和分配
 ### 3.1.1 事务上下文的构造函数
 这里我们从事务上下文的生命周期的历程逐步实现其关键的接口, 首先是构造函数:
-```cpp
+```go
 TranContext::TranContext(uint64_t tranc_id, std::shared_ptr<LSMEngine> engine,
                          std::shared_ptr<TranManager> tranManager,
                          const enum IsolationLevel &isolation_level) {
@@ -198,7 +198,7 @@ TranContext::TranContext(uint64_t tranc_id, std::shared_ptr<LSMEngine> engine,
 
 ### 3.1.2 事务上下文的分配
 有了`TranContext`的构造函数中, 我们可以在`TranManager::new_tranc`接受外部请求完成事务上下文的分配:
-```cpp
+```go
 std::shared_ptr<TranContext>
 TranManager::new_tranc(const IsolationLevel &isolation_level) {
   // TODO: Lab 5.2 事务上下文分配
@@ -214,7 +214,7 @@ TranManager::new_tranc(const IsolationLevel &isolation_level) {
 > 以下的接口在实现`WAL`后, 你需要在实现接口时考虑`WAL`的持久化操作, 本实验中你暂时不需要考虑`WAL`的持久化操作。
 
 ### 3.2.1 put
-```cpp
+```go
 void TranContext::put(const std::string &key, const std::string &value) {
   // TODO: Lab 5.2 put 实现
 }
@@ -229,7 +229,7 @@ void TranContext::put(const std::string &key, const std::string &value) {
    2. 回滚是否需要额外的数据结构?
 
 ### 3.2.2 get
-```cpp
+```go
 void TranContext::remove(const std::string &key) {
   // TODO: Lab 5.2 remove 实现
 }
@@ -237,7 +237,7 @@ void TranContext::remove(const std::string &key) {
 由于`remove`本质上也是`put`, 因此这里的逻辑和`put`类似, 这里就不做过多解释了。
 
 ### 3.2.3 get
-```cpp
+```go
 std::optional<std::string> TranContext::get(const std::string &key) {
   // TODO: Lab 5.2 get 实现
   return {};
@@ -251,7 +251,7 @@ std::optional<std::string> TranContext::get(const std::string &key) {
 3. 如果是`Repeatable Read`隔离级别, 需要考虑如何避免不可重复读现象
 
 ### 3.2.4 commit
-```cpp
+```go
 bool TranContext::commit(bool test_fail) {
   // TODO: Lab 5.2 commit 实现
   return true;
@@ -272,7 +272,7 @@ bool TranContext::commit(bool test_fail) {
 
 ### 3.2.5 abort
 `abort` 方法用于回滚事务，具体的回滚逻辑取决于你之前对`put`函数的设计:
-```cpp
+```go
 bool TranContext::abort() {
   // TODO: Lab 5.2 abort 实现
   return true;
@@ -287,7 +287,7 @@ bool TranContext::abort() {
 
 ## 3.3 事务状态的维护
 之前提到过, `TranManager`中定义了几个`std::atomic<uint64_t>`类型的原子变量, 这些变量用于记录事务的状态, 在事务的提交和回滚时, 需要更新这些变量的值, 以便在重启时进行恢复:
-```cpp
+```go
 void TranManager::write_tranc_id_file() {
   // TODO: Lab 5.2 持久化事务状态信息
 }
@@ -307,7 +307,7 @@ void TranManager::update_max_flushed_tranc_id(uint64_t tranc_id) {
 > 在你操作原子变量时可以不使用锁而实现并发安全性, 不过你需要了解[**内存顺序**](https://en.cppreference.com/w/cpp/atomic/memory_order)的概念
 
 完成上面的持久化操作后, 你在存储引擎启动后也需要从持久化的文件中恢复这些元信息:
-```cpp
+```go
 TranManager::TranManager(std::string data_dir) : data_dir_(data_dir) {
   auto file_path = get_tranc_id_file_path();
 

@@ -67,7 +67,7 @@
 
 ### 2.3.2 adjust_idx_by_tranc_id
 这是之前`Lab`中标记的一个遗留函数:
-```cpp
+```go
 int Block::adjust_idx_by_tranc_id(size_t idx, uint64_t tranc_id) {
   // TODO Lab5.1 找到最接近 tranc_id 的键值对的索引位置
   return -1;

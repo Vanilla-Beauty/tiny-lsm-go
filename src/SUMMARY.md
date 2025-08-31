@@ -49,6 +49,7 @@
     - [Lab 6.4 有序集合](./lab6/lab6.4-ZSet.md)
     - [Lab 6.5 链表](./lab6/lab6.5-List.md)
     - [Lab 6.6 redis-server](./lab6/lab6.6-redis-server.md)
+    - [Lab 6.7 性能优化(选作)](./lab6/lab6.7-bonus-lab.md)
 - [结语](./conclusion.md)
 - [附录](./appendix/appendix.md)
     - [RESP 常见格式](./appendix/RESP.md)

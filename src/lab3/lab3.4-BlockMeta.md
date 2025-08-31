@@ -9,7 +9,7 @@
 - 该`Block`的第一个`key`和最后一个`key`的元数据
 
 在`SST`构建完成后, 其文件持久化在文件系统中, 但`Meta Section`会被加载到内存中并解码为控制结构, 因为没有`Meta Section`的元数据, 我们是没法对`SST`按照`Block`进行索引的。在`Tiny-LSM`中, 这里的元数据在内存中用类`BlockMeta`来表示, 其定义为:
-```cpp
+```go
 class BlockMeta {
   friend class BlockMetaTest;
 
@@ -36,7 +36,7 @@ public:
 
 ## 2.1 编码函数
 你需要实现将内存中的元信息编码到二进制数组的函数:
-```cpp
+```go
 void BlockMeta::encode_meta_to_slice(std::vector<BlockMeta> &meta_entries,
                                      std::vector<uint8_t> &metadata) {
   // TODO: Lab 3.4 将内存中所有`Blcok`的元数据编码为二进制字节数组
@@ -46,7 +46,7 @@ void BlockMeta::encode_meta_to_slice(std::vector<BlockMeta> &meta_entries,
 
 ## 2.2 解码函数
 你需要实现将二进制数组解码到内存中的函数:
-```cpp
+```go
 std::vector<BlockMeta>
 BlockMeta::decode_meta_from_slice(const std::vector<uint8_t> &metadata) {
   // TODO: Lab 3.4 将二进制字节数组解码为内存中的`Blcok`元数据

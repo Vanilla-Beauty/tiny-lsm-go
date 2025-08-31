@@ -1,7 +1,7 @@
 # Lab 3.1 Block 实现
 # 1 准备工作
 老套路, 我们先理一下`Block`的数据结构, 看看头文件定义:
-```cpp
+```go
 // include/block/block.h
 class Block : public std::enable_shared_from_this<Block> {
   friend BlockIterator;
@@ -21,7 +21,7 @@ private:
 ```
 
 这里可能涉及C++的新特性:
-```cpp
+```go
 public std::enable_shared_from_this<Block>
 ```
 `std::enable_shared_from_this` 是 C++11 引入的一个标准库特性，它允许一个对象安全地创建指向自身的`std::shared_ptr`。这里先简单说明一下, 后续实现迭代器的时候就知道其作用了。
@@ -47,7 +47,7 @@ public std::enable_shared_from_this<Block>
 
 ## 2.1 Block 编码和解码
 这里你先不要管这个`Block`是哪里来的, 就当它已经存在, 实现编码和解码的功能:
-```cpp
+```go
 std::vector<uint8_t> Block::encode() {
   // TODO Lab 3.1 编码单个类实例形成一段字节数组
   return {};
@@ -67,7 +67,7 @@ std::shared_ptr<Block> Block::decode(const std::vector<uint8_t> &encoded,
 
 ## 2.2 局部数据编解码函数
 对于二进制数据, 你需要按照设计的编码结构获取其`key`, `value`和`tranc_id`, 这里我们实现几个辅助函数:
-```cpp
+```go
 // 从指定偏移量获取entry的key
 std::string Block::get_key_at(size_t offset) const {
   // TODO Lab 3.1 从指定偏移量获取entry的key
@@ -89,7 +89,7 @@ uint16_t Block::get_tranc_id_at(size_t offset) const {
 
 ## 2.3 构建 Block
 `Block`构建是由`SST`控制的, 其会不断地调用下面这个函数添加键值对:
-```cpp
+```go
 bool Block::add_entry(const std::string &key, const std::string &value,
                       uint64_t tranc_id, bool force_write) {
   // TODO Lab 3.1 添加一个键值对到block中
@@ -107,7 +107,7 @@ bool Block::add_entry(const std::string &key, const std::string &value,
 
 ## 2.4 二分查询
 `Block`构建时是通过`SST`遍历`Skiplist`的迭代器调用`add_entry`实现的, 因此`Block`的数据是有序的, 你需要实现一个二分查找函数, 用于在`Block`中查找指定`key`所属的`Entry`在`offset`元数据中的索引:
-```cpp
+```go
 std::optional<size_t> Block::get_idx_binary(const std::string &key,
                                             uint64_t tranc_id) {
   // TODO Lab 3.1 使用二分查找获取key对应的索引
@@ -116,7 +116,7 @@ std::optional<size_t> Block::get_idx_binary(const std::string &key,
 ```
 
 `get_value_binary`函数中会调用`get_idx_binary`函数, 并返回指定`key`的`value`:
-```cpp
+```go
 // 使用二分查找获取value
 // 要求在插入数据时有序插入
 std::optional<std::string> Block::get_value_binary(const std::string &key,

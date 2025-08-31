@@ -9,7 +9,7 @@
 
 ## 1.1 前缀查询
 具体修改的函数为:
-```cpp
+```go
 std::optional<
     std::pair<std::shared_ptr<BlockIterator>, std::shared_ptr<BlockIterator>>>
 Block::iters_preffix(uint64_t tranc_id, const std::string &preffix) {
@@ -23,7 +23,7 @@ Block::iters_preffix(uint64_t tranc_id, const std::string &preffix) {
 
 ## 1.2 谓词查询
 具体修改的函数为:
-```cpp
+```go
 // 返回第一个满足谓词的位置和最后一个满足谓词的位置
 // 如果不存在, 范围nullptr
 // 谓词作用于key, 且保证满足谓词的结果只在一段连续的区间内, 例如前缀匹配的谓词

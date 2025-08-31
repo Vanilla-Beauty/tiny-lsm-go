@@ -8,89 +8,59 @@
 
 > 下面的接口中, 你仍然需要进行`TTL`超时时间的判断, 同时你可能需要更新之前的`redis_ttl`和`redis_expire`以兼容`List`的`TTL`机制。
 
-```cpp
-// 链表操作
-std::string RedisWrapper::redis_lpush(const std::string &key,
-                                      const std::string &value) {
-  // TODO: Lab 6.5 新建一个链表类型的`key`，并添加一个元素到链表头部
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":" + std::to_string(1) + "\r\n";
+```go
+// expireCleanList checks and cleans expired list data
+func (r *RedisWrapper) expireCleanList(key string) bool {
+	// TODO: Lab 6.5
+
+	return false
 }
 
-std::string RedisWrapper::redis_rpush(const std::string &key,
-                                      const std::string &value) {
-  // TODO: Lab 6.5 新建一个链表类型的`key`，并添加一个元素到链表尾部
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":" + std::to_string(1) + "\r\n";
+// LPush implements Redis LPUSH command
+func (r *RedisWrapper) LPush(args []string) string {
+	// TODO: Lab 6.5
+	return ":len_after_push\r\n"
 }
 
-std::string RedisWrapper::redis_lpop(const std::string &key) {
-  // TODO: Lab 6.5 获取一个链表类型的`key`的头部元素
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return "$-1\r\n"; // 表示链表不存在
+// RPush implements Redis RPUSH command
+func (r *RedisWrapper) RPush(args []string) string {
+	// TODO: Lab 6.5
+	return ":len_after_push\r\n"
 }
 
-std::string RedisWrapper::redis_rpop(const std::string &key) {
-  // TODO: Lab 6.5 获取一个链表类型的`key`的尾部元素
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return "$-1\r\n"; // 表示链表不存在
+// LPop implements Redis LPOP command
+func (r *RedisWrapper) LPop(args []string) string {
+	// TODO: Lab 6.5
+	return ":poped_elem\r\n"
 }
 
-std::string RedisWrapper::redis_llen(const std::string &key) {
-  // TODO: Lab 6.5 获取一个链表类型的`key`的长度
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return ":1\r\n"; // 表示链表不存在
+// RPop implements Redis RPOP command
+func (r *RedisWrapper) RPop(args []string) string {
+	// TODO: Lab 6.5
+	return ":poped_elem\r\n"
 }
 
-std::string RedisWrapper::redis_lrange(const std::string &key, int start,
-                                       int stop) {
-  // TODO: Lab 6.5 获取一个链表类型的`key`的指定范围内的元素
-  // ? 返回值的格式, 你需要查询 RESP 官方文档或者问 LLM
-  return "*0\r\n"; // 表示链表不存在或者范围无效
+// LLen implements Redis LLEN command
+func (r *RedisWrapper) LLen(args []string) string {
+	// TODO: Lab 6.5
+
+	return ":len\r\n"
+}
+
+// LRange implements Redis LRANGE command
+func (r *RedisWrapper) LRange(args []string) string {
+	// TODO: Lab 6.5
+
+	return ""
 }
 ```
+
+**Hint**
+如果你对`Redis`的`RESP`协议不熟悉, 首先推荐你看一看附录[RESP](../appendix/RESP.md), 然后直接问AI也是可以的
 
 # 2 测试
 现在你应该可以通过所有的单元测试:
 ```bash
-✗ xmake
-[100%]: build ok, spent 0.607s
-✗ xmake run test_redis
-[==========] Running 11 tests from 1 test suite.
-[----------] Global test environment set-up.
-[----------] 11 tests from RedisCommandsTest
-[ RUN      ] RedisCommandsTest.SetAndGet
-[       OK ] RedisCommandsTest.SetAndGet (10 ms)
-[ RUN      ] RedisCommandsTest.IncrAndDecr
-[       OK ] RedisCommandsTest.IncrAndDecr (8 ms)
-[ RUN      ] RedisCommandsTest.Expire
-[       OK ] RedisCommandsTest.Expire (2011 ms)
-[ RUN      ] RedisCommandsTest.HSetAndHGet
-[       OK ] RedisCommandsTest.HSetAndHGet (8 ms)
-[ RUN      ] RedisCommandsTest.HDel
-[       OK ] RedisCommandsTest.HDel (8 ms)
-[ RUN      ] RedisCommandsTest.HKeys
-[       OK ] RedisCommandsTest.HKeys (8 ms)
-[ RUN      ] RedisCommandsTest.HGetWithTTL
-[       OK ] RedisCommandsTest.HGetWithTTL (2108 ms)
-[ RUN      ] RedisCommandsTest.HExpire
-[       OK ] RedisCommandsTest.HExpire (1121 ms)
-[ RUN      ] RedisCommandsTest.SetOperations
-[       OK ] RedisCommandsTest.SetOperations (8 ms)
-[ RUN      ] RedisCommandsTest.ZSetOperations
-[       OK ] RedisCommandsTest.ZSetOperations (9 ms)
-[ RUN      ] RedisCommandsTest.ListOperations
-[       OK ] RedisCommandsTest.ListOperations (8 ms)
-[----------] 11 tests from RedisCommandsTest (5314 ms total)
-
-[----------] Global test environment tear-down
-[==========] 11 tests from 1 test suite ran. (5314 ms total)
-[  PASSED  ] 11 tests
-```
-
-此外, 不出意外, 整个`Lab`的所有单元测试你应该都能正常通过:
-```bash
-✗ xmake run test_redis
-# ...
+✗  go test ./pkg/redis/
 ```
 

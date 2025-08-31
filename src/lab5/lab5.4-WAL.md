@@ -11,7 +11,7 @@
 
 # 2 WAL 组件的设计思路
 老规矩, 我们先看看`WAL`组件的定义:
-```cpp
+```go
 class WAL {
 public:
   WAL(const std::string &log_dir, size_t buffer_size,
@@ -66,7 +66,7 @@ protected:
 
 ## 3.1 WAL 组件的接口实现
 你只需要实现下面几个必须实现的函数, 你可以选择性地添加其他功能函数:
-```cpp
+```go
 WAL::WAL(const std::string &log_dir, size_t buffer_size,
          uint64_t max_finished_tranc_id, uint64_t clean_interval,
          uint64_t file_size_limit) {
@@ -101,7 +101,7 @@ void WAL::cleaner() {
 - `put`, `get`, `remove`时进行就分批写入`WAL`文件, 这种方式实现需要你在从图检测时需要考虑`WAL`文件中的记录的有效性控制, 实现难度较大, 但性能较好
 
 你在更新`TranContext`的`put`, `get`,`remove`, `commit`和`abort`等函数中, 下面这个辅助函数也许对你有用:
-```cpp
+```go
 bool TranManager::write_to_wal(const std::vector<Record> &records) {
   // TODO: Lab 5.4
 

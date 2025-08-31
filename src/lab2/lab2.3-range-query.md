@@ -7,7 +7,7 @@
 - `include/memtable/memtable.h` (Optional)
 
 # 2 实现 iters_preffix
-```cpp
+```go
 HeapIterator MemTable::iters_preffix(const std::string &preffix,
                                      uint64_t tranc_id) {
 
@@ -25,7 +25,7 @@ HeapIterator MemTable::iters_preffix(const std::string &preffix,
 > 需要注意的是, 这个返回的迭代器从语义上是`begin`迭代器, 其使用方式是判断自身是否`is_valid`()以及`is_end()`, 不同于`C++ STL`中给定一对迭代器确定范围的风格。这也算是作者前期项目设计的不足之处，介于次代码和实验还是初版，能用能跑就行。
 
 # 3 实现 iters_monotony_predicate
-```cpp
+```go
 std::optional<std::pair<HeapIterator, HeapIterator>>
 MemTable::iters_monotony_predicate(
     uint64_t tranc_id, std::function<int(const std::string &)> predicate) {

@@ -3,7 +3,7 @@
 与之前的模块不同, `LSMEngine`部分我们不打算按照`CRUD`迭代器的顺序进行实验, 因为其`Put`操作包含了`SST`的构建流程, 而`Get`操作是对已经构建的`SST`进行查询, 因此, 本章的`Lab`以`SST`的生命周期为线索, 逐步实现`Lab`, 这样的设计也有助于你对上层组件运行调度机制的理解。
 
 话不多说，我们先来看看`Engine`的头文件定义, 然后结合理论知识, 介绍`put`流程和`sst`的构建流程
-```cpp
+```go
 class Level_Iterator;
 
 class LSMEngine : public std::enable_shared_from_this<LSMEngine> {
@@ -63,7 +63,7 @@ private:
 
 ## 3.1 Put && Remove
 你首先需要实现`put`函数, `put`函数肯定是操纵`memtable`成员变量, 另外你也需要根据其容量接口函数判断什么时候需要进行`flush`操作:
-```cpp
+```go
 uint64_t LSMEngine::put(const std::string &key, const std::string &value,
                         uint64_t tranc_id) {
   // TODO: Lab 4.1 插入
@@ -95,7 +95,7 @@ uint64_t LSMEngine::remove(const std::string &key, uint64_t tranc_id) {
 
 ## 3.2 put_batch && remove_batch
 和`put/remove`函数的逻辑几乎一样, 只是写入时是批量数据:
-```cpp
+```go
 uint64_t LSMEngine::put_batch(
     const std::vector<std::pair<std::string, std::string>> &kvs,
     uint64_t tranc_id) {
@@ -123,7 +123,7 @@ uint64_t LSMEngine::remove_batch(const std::vector<std::string> &keys,
 > **Hint**:
 > `flush()`的返回值是和`put()`等接口的返回值一致的
 
-```cpp
+```go
 uint64_t LSMEngine::flush() {
   // TODO: Lab 4.1 刷盘形成sst文件
   return 0;
@@ -132,7 +132,7 @@ uint64_t LSMEngine::flush() {
 `flush`函数应该是这一小节的关键函数了, 这里的逻辑就是从`memtable`的接口将最旧的跳表刷盘城`SST`文件, 这里涉及到文件`IO`的操作时, 推荐使用作者定义好的辅助类`FileObj`, 其定义在`include/utils/files.h`中, 如果你有兴趣, 也可以看看``include/utils`中定义的其他工具类及其实现。
 
 最后，`SST文件`的命名格式已经在`get_sst_path`中进行了详细的说明:
-```cpp
+```go
 std::string LSMEngine::get_sst_path(size_t sst_id, size_t target_level) {
   // sst的文件路径格式为: data_dir/sst_<sst_id>.<level>，sst_id格式化为32位数字
   std::stringstream ss;

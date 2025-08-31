@@ -5,7 +5,7 @@
 - `include/skiplist/skiplist.h` (optional)
 
 这里首先简单介绍本`Lab`已有的`SkipList`头文件定义:
-```cpp
+```go
 // include/skiplist/skiplist.h
 struct SkipListNode {
   std::string key_;   // 节点存储的键
@@ -25,7 +25,7 @@ struct SkipListNode {
 > 这里补充说明一下`weak_ptr`, 它的作用是避免`shared_ptr`循环引用, 即一个节点的`shared_ptr`指针指向另一个节点, 另一个节点的`shared_ptr`指针指向前者, 这样就会造成两个节点的析构都无法进行, 因为在析构时互相持有对方的引用计数, 类似死锁。但`weak_ptr`不参与类似`shared_ptr`的引用计数, 保证了析构的正确进行。但也正因为如此，`weak_ptr`不保证指针的有效性, 需要想使用`.lock()`判断该指针是否有效。
 
 然后我们看`SkipList`的头文件定义：
-```cpp
+```go
 
 class SkipList {
 private:
@@ -49,7 +49,7 @@ private:
 
 # 2 put 的实现
 你需要实现下面的`put`函数:
-```cpp
+```go
 // 插入或更新键值对
 void SkipList::put(const std::string &key, const std::string &value,
                    uint64_t tranc_id) {
@@ -63,7 +63,7 @@ void SkipList::put(const std::string &key, const std::string &value,
 目前, 你可以先忽略`tranc_id`这个参数。
 
 此外，之前提到过，跳表的层数是动态增加的， 因此你实现下面的函数可能对你有帮助：
-```cpp
+```go
 int SkipList::random_level() {
   // TODO: 实现随机生成level函数
   // 通过"抛硬币"的方式随机生成层数：
@@ -84,7 +84,7 @@ int SkipList::random_level() {
 
 # 3 remove 的实现
 虽然我们的`LSM Tree`是以仅追加写入的方式使用我们的`SkipList`, 但为了这个数据结构的完整性, 也是一次手搓底层跳表的体验, 你需要实现正儿八经的`remove`函数:
-```cpp
+```go
 // 删除键值对
 // ! 这里的 remove 是跳表本身真实的 remove,  lsm 应该使用 put 空值表示删除,
 // ! 这里只是为了实现完整的 SkipList 不会真正被上层调用
@@ -96,7 +96,7 @@ void SkipList::remove(const std::string &key) {
 
 # 4 get 实现
 接下来实现`get`函数:
-```cpp
+```go
 // 查找键值对
 SkipListIterator SkipList::get(const std::string &key, uint64_t tranc_id) {
   // spdlog::trace("SkipList--get({}) called", key);
