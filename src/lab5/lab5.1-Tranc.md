@@ -65,20 +65,23 @@
 
 除了`Block`之外, `SST`的文件编码部分应该只是调用`Block`的接口, 因此你只需要修改`Block`
 
-### 2.3.2 adjust_idx_by_tranc_id
+### 2.3.2 GetValue
 这是之前`Lab`中标记的一个遗留函数:
 ```go
-int Block::adjust_idx_by_tranc_id(size_t idx, uint64_t tranc_id) {
-  // TODO Lab5.1 找到最接近 tranc_id 的键值对的索引位置
-  return -1;
+// GetValue searches for a key and returns its value with MVCC support
+// Returns (value, found, error)
+func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
+	// TODO: Lab5.1 handle txnID
+
+	return "", false // No suitable version found
 }
 ```
 
-这里说明下这个函数的作用:
-1. 你进行查询定位时发现`idx`位置的`key`是你的目标
-2. 但`idx`位置的`tranc_id`并不愉参数匹配
+在之前未引入事务`id`时, `GetValue`总是从`block`中查询最新的键值对, 且在你的流程中, 这个`key`在`block`中应该是唯一的。因为`block`是由`MemTable`刷盘时形成的, 如果没有事务`id`的概念, 那么这里只会保留相同`key`的一个键值对。
 
-因此你需要调用`adjust_idx_by_tranc_id`函数, 找到最接近`tranc_id`的键值对索引位置。当然, 这里的最接近不能大于指定的事务`id`。这个辅助函数有助于你实现新的`get_idx_binary`函数。
+但是现在情况发生了变化, `block`中可能会有多个相同`key`的键值对, 因为这些事务可能同时活跃, 因此在`GetValue`中, 这个`txnID`参数的含义是限制事务的可见性, 即当前事务允许访问的键值对的事务`id`不得大于`txnID`。
+
+因此这些`key`可能是连续分布的, 你需要根据事务`id`的滤除逻辑, 筛选出可见且`id`最大的键值对返回。
 
 ### 2.3.3 get_idx_binary
 `get_idx_binary`函数用于二分查找定位`key`在`Block`中的索引位置, 你需要修改这个函数, 使其能够支持`tranc_id`的滤除。(可以借助刚刚实现的`adjust_idx_by_tranc_id`函数)
