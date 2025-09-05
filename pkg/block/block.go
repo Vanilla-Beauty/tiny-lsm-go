@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"tiny-lsm-go/pkg/iterator"
-	"tiny-lsm-go/pkg/logger"
 )
 
 // Block represents a data block in SST files
@@ -291,55 +290,7 @@ func (b *Block) GetNumEntries() int {
 // GetValue searches for a key and returns its value with MVCC support
 // Returns (value, found, error)
 func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
-	// Collect all entries with the target key
-	var matchingEntries []iterator.Entry
-	for _, entry := range b.entries {
-		if entry.Key == key {
-			matchingEntries = append(matchingEntries, entry)
-		}
-	}
-
-	if len(matchingEntries) == 0 {
-		return "", false // Key not found
-	}
-
-	// Debug: print all matching entries
-	logger.Tracef("GetValue(%s, %d): found %d entries\n", key, txnID, len(matchingEntries))
-	for _, entry := range matchingEntries {
-		logger.Tracef("  TxnID=%d, Value=%s\n", entry.TxnID, entry.Value)
-	}
-
-	// If txnID is 0, return the latest version
-	if txnID == 0 {
-		// Find the entry with the highest transaction ID
-		latestEntry := matchingEntries[0]
-		for _, entry := range matchingEntries {
-			if entry.TxnID > latestEntry.TxnID {
-				latestEntry = entry
-			}
-		}
-
-		return latestEntry.Value, true
-	}
-
-	// Find the latest version that is <= txnID
-	var bestEntry *iterator.Entry
-	for i, entry := range matchingEntries {
-		if entry.TxnID <= txnID {
-			if bestEntry == nil || entry.TxnID > bestEntry.TxnID {
-				bestEntry = &matchingEntries[i]
-			}
-		}
-	}
-
-	// Debug: print best entry
-	if bestEntry != nil {
-		logger.Debugf("  Best entry: TxnID=%d, Value=%s\n", bestEntry.TxnID, bestEntry.Value)
-	}
-
-	if bestEntry != nil {
-		return bestEntry.Value, true
-	}
+	// TODO: Lab5.1 handle txnID
 
 	return "", false // No suitable version found
 }
