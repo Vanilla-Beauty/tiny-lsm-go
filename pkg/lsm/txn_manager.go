@@ -1,16 +1,10 @@
 package lsm
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"tiny-lsm-go/pkg/common"
 	"tiny-lsm-go/pkg/utils"
 	"tiny-lsm-go/pkg/wal"
 )
@@ -92,20 +86,9 @@ func DefaultTransactionConfig() *TransactionConfig {
 
 // NewTransactionManager creates a new transaction manager
 func NewTransactionManager(engine *Engine, config *TransactionConfig) *TransactionManager {
-	if config == nil {
-		config = DefaultTransactionConfig()
-	}
+	// TODO: Lab 5.2
 
-	mgr := &TransactionManager{
-		engine:        engine,
-		activeTxns:    make(map[uint64]*Transaction),
-		committedTxns: make(map[uint64]*Transaction),
-		config:        config,
-	}
-
-	mgr.loadTxnStatus()
-
-	return mgr
+	return nil
 }
 
 // Begin starts a new transaction with default isolation level
@@ -115,33 +98,9 @@ func (m *TransactionManager) Begin() (*Transaction, error) {
 
 // BeginWithIsolation starts a new transaction with specified isolation level
 func (m *TransactionManager) BeginWithIsolation(isolation IsolationLevel) (*Transaction, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// TODO: Lab 5.2
 
-	// Check if we exceed maximum active transactions
-	if len(m.activeTxns) >= m.config.MaxActiveTxns {
-		return nil, utils.ErrTooManyActiveTxns
-	}
-
-	txnID := atomic.AddUint64(&m.engine.metadata.NextTxnID, 1) - 1
-	readTxnID := atomic.LoadUint64(&m.engine.metadata.GlobalReadTxnID)
-
-	txn := &Transaction{
-		id:        txnID,
-		state:     TxnActive,
-		isolation: isolation,
-		startTime: time.Now(),
-		readTxnID: readTxnID,
-		manager:   m,
-		// Initialize transaction-specific maps
-		tempMap:     make(map[string]string),
-		readMap:     make(map[string]*ReadRecord),
-		rollbackMap: make(map[string]*RollbackRecord),
-		operations:  []*wal.Record{wal.NewCreateRecord(txnID)},
-	}
-
-	m.activeTxns[txnID] = txn
-	return txn, nil
+	return nil, nil
 }
 
 // GetTransaction returns a transaction by ID
@@ -188,39 +147,13 @@ func (m *TransactionManager) updateFlushedTxn(txnID uint64) {
 }
 
 func (m *TransactionManager) syncTxnStatus() error {
-	data, err := json.MarshalIndent(m.activeTxns, "", "  ")
-	if err != nil {
-		log.Printf("Failed to marshal active transactions: %v", err)
-		return err
-	}
-
-	filePath := filepath.Join(m.engine.dataDir, common.CommittedTxnFile)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write committed transactions file: %w", err)
-	}
+	// TODO: Lab 5.2
 	return nil
 }
 
 func (m *TransactionManager) loadTxnStatus() error {
-	data, err := os.ReadFile(filepath.Join(m.engine.dataDir, common.CommittedTxnFile))
-	if err != nil {
-		return fmt.Errorf("failed to read committed transactions file: %w", err)
-	}
-	var records map[uint64]*Transaction
-	if err := json.Unmarshal(data, &records); err != nil {
-		return fmt.Errorf("failed to unmarshal committed transactions: %w", err)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.committedTxns = records
+	// TODO: Lab 5.2
 	return nil
-}
-
-func (m *TransactionManager) needRepay(txnID uint64) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	_, exist := m.committedTxns[txnID]
-	return exist
 }
 
 func (m *TransactionManager) GetactiveTxnIDs() map[uint64]struct{} {
@@ -289,89 +222,13 @@ func (t *Transaction) WriteTxnID() uint64 {
 
 // Commit commits the transaction
 func (t *Transaction) Commit() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.state != TxnActive {
-		return utils.ErrTransactionNotActive
-	}
-
-	// Handle different isolation levels
-	switch t.isolation {
-	case ReadUncommitted:
-		// READ_UNCOMMITTED: Data already written, just add commit record
-
-	default:
-		// Other isolation levels: Need conflict detection and batch apply
-		if err := t.detectConflicts(); err != nil {
-			// Conflict detected, abort transaction
-			t.state = TxnAborted
-			t.manager.mu.Lock()
-			delete(t.manager.activeTxns, t.id)
-			t.manager.mu.Unlock()
-			return err
-		}
-	}
-
-	// Add commit record
-	t.operations = append(t.operations, wal.NewCommitRecord(t.id))
-
-	// Write all operations to WAL
-	if err := t.manager.engine.wal.Log(t.operations, true); err != nil {
-		return fmt.Errorf("failed to write transaction operations to WAL: %w", err)
-	}
-
-	// Apply changes to database
-	if err := t.applyChanges(); err != nil {
-		return err
-	}
-
-	// Mark transaction as committed
-	t.state = TxnCommitted
-	t.commitTime = time.Now()
-
-	// Move from active to committed transactions
-	t.manager.mu.Lock()
-	delete(t.manager.activeTxns, t.id)
-	t.manager.committedTxns[t.id] = t
-
-	// Update global read transaction ID for new snapshots
-	atomic.StoreUint64(&t.manager.engine.metadata.GlobalReadTxnID, t.id)
-	t.manager.mu.Unlock()
-
-	// Force flush to ensure durability
-	return t.manager.engine.Flush()
+	// TODO: Lab 5.2
+	return nil
 }
 
 // Rollback rolls back the transaction
 func (t *Transaction) Rollback() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.state != TxnActive {
-		return utils.ErrTransactionNotActive
-	}
-
-	// Handle rollback based on isolation level
-	if t.isolation == ReadUncommitted {
-		// READ_UNCOMMITTED: Need to actively restore previous values
-		if err := t.rollbackChanges(); err != nil {
-			return err
-		}
-
-		// Add rollback record to WAL
-		t.operations = append(t.operations, wal.NewRollbackRecord(t.id))
-	}
-	// For other isolation levels, data is in tempMap and will be discarded
-
-	// Mark transaction as aborted
-	t.state = TxnAborted
-
-	// Remove from active transactions
-	t.manager.mu.Lock()
-	delete(t.manager.activeTxns, t.id)
-	t.manager.mu.Unlock()
-
+	// TODO: Lab 5.2
 	return nil
 }
 

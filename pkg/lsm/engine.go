@@ -168,82 +168,14 @@ func (e *Engine) recover() error {
 
 // recoverFromWAL recovers uncommitted transactions from WAL logs
 func (e *Engine) recoverFromWAL() error {
-	// Read WAL records
-	walDir := filepath.Join(e.dataDir, "wal")
-	recordsByTxn, err := wal.Recover(walDir, 0) // Recover from checkpoint 0
-	if err != nil {
-		return fmt.Errorf("failed to read WAL records: %w", err)
-	}
-
-	if len(recordsByTxn) == 0 {
-		return nil // No records to recover
-	}
-
-	logger.Infof("🔄 Check %d transactions from WAL...\n", len(recordsByTxn))
-
-	// Process each transaction
-	hasRepayed := false
-	for txnID, records := range recordsByTxn {
-		if e.txnManager.needRepay(txnID) {
-			if err := e.replayTransaction(txnID, records); err != nil {
-				logger.Errorf("Warning: failed to replay transaction %d: %v\n", txnID, err)
-				os.Exit(1)
-			}
-			hasRepayed = true
-			logger.Infof(" ✅ Replayed record %+v.\n", records)
-		}
-	}
-	if hasRepayed {
-		logger.Infof("✅ WAL recovery completed. Next transaction ID: %d\n", e.metadata.NextTxnID)
-	} else {
-		logger.Info("✅ WAL recovery completed. No transactions to replay.")
-	}
+	// TODO: Lab 5.5
 
 	return nil
 }
 
 // replayTransaction replays a single transaction from WAL records
 func (e *Engine) replayTransaction(txnID uint64, records []*wal.Record) error {
-	if len(records) == 0 {
-		return nil
-	}
-
-	// Check if transaction was committed or rolled back
-	var committed, rolledBack bool
-	for _, record := range records {
-		switch record.OpType {
-		case wal.OpCommit:
-			committed = true
-		case wal.OpRollback:
-			rolledBack = true
-		}
-	}
-
-	// If transaction was committed, replay all operations
-	if committed {
-		logger.Debugf("  Replaying committed transaction %d...\n", txnID)
-		for _, record := range records {
-			switch record.OpType {
-			case wal.OpPut:
-				if err := e.memTable.Put(record.Key, record.Value, txnID); err != nil {
-					return fmt.Errorf("failed to replay PUT %s: %w", record.Key, err)
-				}
-			case wal.OpDelete:
-				if err := e.memTable.Delete(record.Key, txnID); err != nil {
-					return fmt.Errorf("failed to replay DELETE %s: %w", record.Key, err)
-				}
-			}
-		}
-		return nil
-	}
-
-	// If transaction was rolled back or incomplete, ignore it
-	if rolledBack {
-		logger.Debugf("  Skipping rolled back transaction %d\n", txnID)
-	} else {
-		logger.Debugf("  Skipping incomplete transaction %d\n", txnID)
-	}
-
+	// TODO: Lab 5.5
 	return nil
 }
 
