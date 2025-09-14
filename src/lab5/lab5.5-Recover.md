@@ -64,14 +64,9 @@ COMMIT TX100
 
 # 2 崩溃恢复代码实现
 本小节实验, 你需要更改的代码文件包括:
-- `src/lsm/engine.cpp`
-- `include/lsm/engine.h` (Optional)
-- `src/wal/wal.cpp`
-- `include/wal/wal.h` (Optional)
-- `src/lsm/transation.cpp`
-- `include/lsm/transation.h` (Optional)
+- `pkg/lsm/engine.go`
 
-## 2.1 WAL::recover
+## 2.1 recoverFromWAL
 
 这里的崩溃恢复需要在引擎启动时进行判断, 因此其与不同组件的构造函数息息相关, 由于这里不同组件的耦合程度较高, 故先统一介绍这流程:
 ```text
@@ -87,13 +82,15 @@ COMMIT TX100
 ```
 
 ```go
-std::map<uint64_t, std::vector<Record>>
-WAL::recover(const std::string &log_dir, uint64_t max_flushed_tranc_id) {
-  // TODO: Lab 5.5 检查需要重放的WAL日志
-  return {};
+// pkg/lsm/engine.go
+// recoverFromWAL recovers uncommitted transactions from WAL logs
+func (e *Engine) recoverFromWAL() error {
+	// TODO: Lab 5.5
+
+	return nil
 }
 ```
-这个函数是一个静态函数, 在你的引擎正式初始化前(或者初始化的过程中, 取决于你的实现)需要进行`WAL`文件的重放, 举个例子:
+`recoverFromWAL`这个函数需要你在启动整个存储引擎时进行调用，其功能是检测`WAL`文件中是否有需要进行重复的日志，举个例子:
 ```text
 T1 ctx1 running, ctx2 running
 T2 ctx1 commit, ctx2 running
@@ -104,18 +101,43 @@ T4 recover
 
 `WAL::recover`函数就是整理需要重放的`WAL`日志, 返回一个`map`, 其中`key`为事务`id`, `value`为该事务的所有`WAL`操作记录
 
-## 2.2 TranManager::check_recover
+`recoverFromWAL`的调用位置在这里：
 ```go
-std::map<uint64_t, std::vector<Record>> TranManager::check_recover() {
-  // TODO: Lab 5.5
-  return {};
+// pkg/lsm/engine.go
+// recover recovers the engine state from disk
+func (e *Engine) recover() error {
+	// First, recover SST files
+	if err := e.levels.LoadExistingSSTs(); err != nil {
+		return fmt.Errorf("failed to load existing SST files: %w", err)
+	}
+
+	// Then, recover from WAL
+	if e.wal != nil {
+		if err := e.recoverFromWAL(); err != nil {
+			return fmt.Errorf("failed to recover from WAL: %w", err)
+		}
+	}
+
+	return nil
 }
 ```
-`TranManager::check_recover`的目的是调用底层`WAL`的`recover`函数, 将其返回的`map`保存到上层组件中, 由上层组件进行重放。
 
-这里需要注意的是, 之前的`WAL::recover`函数是静态函数, 其会在`WAL`的类的实例化之前进行调用, 因此在`WAL`的实例化过程中, 需要调用`WAL::recover`函数, 并将返回的`map`保存到上层组件中使其进行重放, 这里在`recover`崩溃恢复之后进行`WAL`的初始化的函数是由`TranManager::init_new_wal`函数进行的:
+那么问题来了，什么情况下我们的`WAL`日志是需要重放的？
+**答案是已经提交但m没有刷到SST文件中的数据**，换言之，存储引擎崩溃时这些数据存在于内存的`MemTable`中。因此，你实现的事务管理器需要意识到什么时候，某个事务提交，以及什么时候这个事务被持久化到`SST`了。这个时候，你就意识到你在`Lab-5.2`中实现的事务管理器的重要性了。
 
-## 2.3 WAL 初始化
+
+## 2.2 replayTransaction
+```go
+// replayTransaction replays a single transaction from WAL records
+func (e *Engine) replayTransaction(txnID uint64, records []*wal.Record) error {
+	// TODO: Lab 5.5
+	return nil
+}
+```
+`replayTransaction`这个函数顾名思义，就是在判断该事务需要进行重放时，调用存储引擎的接口进行重放操作。其会被`recoverFromWAL`函数调用。
+
+
+## 2.3 初始化后的操作
 在重放完成后，需要重新初始化 WAL，以便后续事务的日志记录：
 ```go
 void TranManager::init_new_wal() {
@@ -123,80 +145,6 @@ void TranManager::init_new_wal() {
 }
 ```
 
-这里你也需要回顾一下`TranManager`的头文件定义:
-```go
-class TranManager : public std::enable_shared_from_this<TranManager> {
-public:
-  // ...
 
-private:
-  // ...
-  std::shared_ptr<WAL> wal;
-  // ...
-};
-```
-
-> 这里的组件构成是: `TranManager`内部管理的`WAL`这个组件, 他们内部的耦合度还是比较高的, 后续的实验版本也需要进行优化
-
-## 2.4 LSM 的构造函数
-你需要在`LSM`的构造函数中调用之前实现的`WAL`重放检查相关的函数, 并将重放的`WAL`日志应用到`LSM`中, 在之后你需要重新初始化`WAL`组件:
-```go
-LSM::LSM(std::string path)
-    : engine(std::make_shared<LSMEngine>(path)),
-      tran_manager_(std::make_shared<TranManager>(path)) {
-  // TODO: Lab 5.5 控制WAL重放与组件的初始化
-}
-```
-
-# 3 事务id信息的维护
-这里补充说明一个非常重要的细节。我们之前介绍的崩溃恢复重放流程是：
-```text
-1. 检查WAL日志
-2. 整合事务id每条记录, 忽略以Rollback结尾的事务
-3. 若事务以Commit结尾, 则将事务id与已经刷盘的SST中的最大事务id进行比对
-   1. 若事务id大于SST的最大事务id, 执行重放操作
-   2. 若事务id小于SST的最大事务id, 则忽略该事务, 因为其已经被持久化到SST了
-```
-
-这里的问题包括:
-1. 什么时候更新这个`已经刷盘的SST中的最大事务id`? (这个变量就是`max_flushed_tranc_id_`)
-2. `max_flushed_tranc_id_`意味着整个事务已经刷盘到`SST`, 这是如何保证的? 有没有坑出现下述情况
-   1. 一部分属于该事务的键值对在刷盘时检查到其`tranc_id`比`max_flushed_tranc_id_`大, 因此更新了`max_flushed_tranc_id_`
-   2. 此时数据库崩溃, 改事务的剩余键值对因为在内存`MemTable`中而被丢弃, 但`WAL`中有对应的日志
-   3. 崩溃恢复时, 由于`WAL`中属于该事务的事务的`tranc_id`等于`max_flushed_tranc_id_`而被忽略, 改事务尽管`commit`了, 但其数据还是发生了缺失
-
-实验不限制你对上述问题的解决方案, 你能通过后续测试即可
-
-# 4 测试
-现在你应该可以通过之前所有的测试了:
-```bash
-✗ xmake
-[100%]: build ok, spent 0.773s
-✗ xmake run test_lsm
-[==========] Running 9 tests from 1 test suite.
-[----------] Global test environment set-up.
-[----------] 9 tests from LSMTest
-[ RUN      ] LSMTest.BasicOperations
-[       OK ] LSMTest.BasicOperations (1003 ms)
-[ RUN      ] LSMTest.Persistence
-[       OK ] LSMTest.Persistence (2020 ms)
-[ RUN      ] LSMTest.LargeScaleOperations
-[       OK ] LSMTest.LargeScaleOperations (1000 ms)
-[ RUN      ] LSMTest.IteratorOperations
-[       OK ] LSMTest.IteratorOperations (1027 ms)
-[ RUN      ] LSMTest.MixedOperations
-[       OK ] LSMTest.MixedOperations (1001 ms)
-[ RUN      ] LSMTest.MonotonyPredicate
-[       OK ] LSMTest.MonotonyPredicate (1016 ms)
-[ RUN      ] LSMTest.TrancIdTest
-[       OK ] LSMTest.TrancIdTest (18 ms)
-[ RUN      ] LSMTest.TranContextTest
-[       OK ] LSMTest.TranContextTest (0 ms)
-[ RUN      ] LSMTest.Recover
-[       OK ] LSMTest.Recover (1001 ms)
-[----------] 9 tests from LSMTest (8091 ms total)
-
-[----------] Global test environment tear-down
-[==========] 9 tests from 1 test suite ran. (8091 ms total)
-[  PASSED  ] 9 tests.
-```
+# 3 测试
+现在你应该可以通过`pkg/lsm/txn_test.go`中所有的测试。

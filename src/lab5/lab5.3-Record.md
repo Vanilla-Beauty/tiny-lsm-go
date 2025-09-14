@@ -23,9 +23,9 @@ WAL的优势不仅在于数据安全，还在于其高性能和可扩展性。�
 
 每个日志条目需包含以下核心信息：
 1. **事务标识（Transaction ID）**：唯一标识事务的ID，用于关联多个操作。
-2. **操作类型（Operation Type）**：如`PUT`、`REMOVE`、`GET`、`BEGIN`、`COMMIT`、`ABORT`等。
+2. **操作类型（Operation Type）**：如`OpPut`、`REMOVE`、`GET`、`BEGIN`、`OpCommit`、`OpRollback`等。
 3. **键（Key）**：操作的键值。
-4. **值（Value）**：对于`PUT`操作记录具体值；
+4. **值（Value）**：对于`OpPut`操作记录具体值；
 5. **校验和（Checksum）(可选)**：用于验证日志条目的完整性（如CRC32）。
 6. **时间戳（可选）**：记录操作时间，用于多版本控制或冲突解决。
 
@@ -34,48 +34,31 @@ WAL的优势不仅在于数据安全，还在于其高性能和可扩展性。�
 ## 1.3 Record 代码概览
 基于我们之前的描述, 我们来看看`Record`中每一类记录项的定义:
 ```go
-// include/wal/record.h
-class Record {
-private:
-  // 构造函数
-  Record() = default;
-
-public:
-  // 操作类型枚举
-
-  static Record createRecord(uint64_t tranc_id);
-  static Record commitRecord(uint64_t tranc_id);
-  static Record rollbackRecord(uint64_t tranc_id);
-  static Record putRecord(uint64_t tranc_id, const std::string &key,
-                          const std::string &value);
-  static Record deleteRecord(uint64_t tranc_id, const std::string &key);
-
-  // 编码记录
-  std::vector<uint8_t> encode() const;
-
-  // 解码记录
-  static std::vector<Record> decode(const std::vector<uint8_t> &data);
-
-  // ...
-
-private:
-  uint64_t tranc_id_;
-  OperationType operation_type_;
-  std::string key_;
-  std::string value_;
-  uint16_t record_len_;
-};
+// Record represents a single WAL record
+type Record struct {
+	// RecordLen is the total length of this record
+	RecordLen uint16
+	// TxnID is the transaction ID
+	TxnID uint64
+	// OpType is the operation type
+	OpType OperationType
+	// Key is the key for PUT/DELETE operations (empty for CREATE/COMMIT/ROLLBACK)
+	Key string
+	// Value is the value for PUT operations (empty for others)
+	Value string
+	// Timestamp is when this record was created
+	Timestamp time.Time
+}
 ```
 这里展示了几个关键的成员变量和成员函数, 这里的`Record`表示的就是`WAL`中的单个日志条目, 操作类型为`OperationType`, 通过`OperationType`可以判断其是否有`key`, `value`等附加数据信息。同时，我们通过静态成员函数`createRecord`, `putRecord`等构造类的实例。最后，`encode`和`decode`函数用于将记录转换为字节流和从字节流恢复记录。
 
-> 这里的构造函数被标记为`private`, 你需要使用`createRecord`等静态成员函数来构造`Record`的实例。
 
 ## 1.4 Record 文件格式
 `Record`仅仅是内存中的一个类, 且其会因记录类型的不同导致占据的内存大小不同, 因此我们需要将采用某种编码格式将其序列化到磁盘上, 以便在崩溃恢复时能够从磁盘上恢复出`Record`。这里我们采用一种简单的序列化方式, 将每一个`Record`的长度和内容依次写入磁盘, 具体格式如下:
 ```text
-| record_len | tranc_id | operation_type | key_len(optional) | key(optional) | value_len(optional) | value(optional) |
+[RecordLen(2)] [TxnID(8)] [OpType(1)] [KeyLen(2)] [Key] [ValueLen(2)] [Value] [Timestamp(8)]
 ```
-这里, 当`operation_type`是`CREATE`, `ROLLBACK`, `COMMIT`时, 只需要记录`tranc_id`和`operation_type`即可, 其余的`optional`部分不存在, 当`operation_type`是`PUT`时, 需要记录`tranc_id`, `operation_type`, `key`, `value`; 当`operation_type`是`DELETE`时, 需要记录`tranc_id`, `operation_type`, `key`。'
+这里, 当`operation_type`是`OpCreate`, `OpRollback`, `OpCommit`时, 只需要记录`TxnID`和`operation_type`即可, 其余的`optional`部分不存在, 当`operation_type`是`OpPut`时, 需要记录`TxnID`, `operation_type`, `key`, `value`; 当`operation_type`是`DELETE`时, 需要记录`TxnID`, `operation_type`, `key`。'
 
 每个条目的第一部分是`record_len`, 其记录了整个日志条目的长度(16位)。这里的编解码需要注意一下，`encode`函数是以单个`Record`为单位, 将其编码为字节流, 而`decode`函数是以字节流为单位, 将其解码为`Record`数组。
 
@@ -83,49 +66,60 @@ private:
 现在你已经了解了`Record`的设计和编码格式, 接下来你需要实现`Record`的基础构造函数和编解码函数。
 
 你需要修改的文件包括：
-- `src/wal/record.cpp`
-- `include/wal/record.h` (Optional)
+- `pkg/wal/record.go`
 
 ## 2.1 构造函数
-这里的构造函数其实是一系列静态函数, 其们会根据不同的操作类型构造不同的`Record`实例, 你需要实现这些静态函数:
+这里函数其实就是简单构造结构体：
 ```go
-Record Record::createRecord(uint64_t tranc_id) {
-  // TODO: Lab 5.3 实现创建事务的Record
-  return {};
+// NewCreateRecord creates a CREATE record
+func NewCreateRecord(txnID uint64) *Record {
+	// TODO: Lab 5.3
+	return nil
 }
-Record Record::commitRecord(uint64_t tranc_id) {
-  // TODO: Lab 5.3 实现提交事务的Record
-  return {};
+
+// NewCommitRecord creates a COMMIT record
+func NewCommitRecord(txnID uint64) *Record {
+	// TODO: Lab 5.3
+	return nil
 }
-Record Record::rollbackRecord(uint64_t tranc_id) {
-  // TODO: Lab 5.3 实现回滚事务的Record
-  return {};
+
+// NewRollbackRecord creates a ROLLBACK record
+func NewRollbackRecord(txnID uint64) *Record {
+	// TODO: Lab 5.3
+	return nil
 }
-Record Record::putRecord(uint64_t tranc_id, const std::string &key,
-                         const std::string &value) {
-  // TODO: Lab 5.3 实现插入键值对的Record
-  return {};
+
+// NewPutRecord creates a PUT record
+func NewPutRecord(txnID uint64, key, value string) *Record {
+	// TODO: Lab 5.3
+	return nil
 }
-Record Record::deleteRecord(uint64_t tranc_id, const std::string &key) {
-  // TODO: Lab 5.3 实现删除键值对的Record
-  return {};
+
+// NewDeleteRecord creates a DELETE record
+func NewDeleteRecord(txnID uint64, key string) *Record {
+	// TODO: Lab 5.3
+	return nil
 }
 ```
 
-> 之所以这样设计, 是因为不同类型的`Record`的成员变量数量不同, 比如`CREATE`类型的`Record`只需要`tranc_id`和`operation_type`两个成员变量, 而`PUT`类型的`Record`则需要`tranc_id`, `operation_type`, `key`, `value`四个成员变量, 因此我们通过静态函数来构造不同的`Record`实例, 这样可以避免构造函数的参数过多。
+> 之所以这样设计, 是因为不同类型的`Record`的成员变量数量不同, 比如`OpCreate`类型的`Record`只需要`TxnID`和`operation_type`两个成员变量, 而`OpPut`类型的`Record`则需要`TxnID`, `operation_type`, `key`, `value`四个成员变量, 因此我们通过单独的函数来构造不同的`Record`实例, 这样可以避免构造函数的参数过多。
 
 ## 2.2 编解码函数
 接下来是接触的编解码函数, 这里你只需要编解码成字节数组即可, 文件IO相关操作你在下一个`Lab`实现:
 ```go
-std::vector<uint8_t> Record::encode() const {
-  // TODO: Lab 5.3 实现Record的编码函数
-  return {};
+// Encode serializes the record to bytes
+// Format: [RecordLen(2)] [TxnID(8)] [OpType(1)] [KeyLen(2)] [Key] [ValueLen(2)] [Value] [Timestamp(8)]
+func (r *Record) Encode() []byte {
+	// TODO: Lab 5.3
+	return nil
 }
 
-std::vector<Record> Record::decode(const std::vector<uint8_t> &data) {
-  // TODO: Lab 5.3 实现Record的解码函数
-  return {};
+// DecodeRecords decodes multiple records from bytes
+func DecodeRecords(data []byte) ([]*Record, error) {
+	// TODO: Lab 5.3
+	return nil, nil
 }
+
 ```
 
 > TODO: 初版实验代码中, `encode`和`decode`是针对单个`Record`进行的, 后续版本应进行改进, 使编解码的数据以`std::vector<Record>`为单位, 这样可以避免内存的频繁分配和释放。

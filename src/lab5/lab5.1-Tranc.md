@@ -13,12 +13,12 @@
 ![MemTable-SST](../images/lab3/SST.drawio.png)
 
 # 2 代码修改
-现在，我们需要对之前的`Lab`中涉及到事务操作的函数进行修改, 其实也就是参数列表中包含了`tranc_id`或者`max_tranc_id`的函数进行逻辑补全。
+现在，我们需要对之前的`Lab`中涉及到事务操作的函数进行修改, 其实也就是参数列表中包含了`txn_id`或者`txnId`的函数进行逻辑补全。
 
 本章你需要修改的代码文件：
-- 之前`Lab`中所有涉及`tranc_id`的函数
+- 之前`Lab`中所有涉及`txn_id`的函数
 
-> 注意, 如果`tranc_id == 0`, 表示当前操作没有开启事务功能, 你的执行逻辑相当于事务不存在
+> 注意, 如果`txn_id == 0`, 表示当前操作没有开启事务功能, 你的执行逻辑相当于事务不存在
 
 ## 2.1 SkipList 部分修改
 ### 2.1.1 put
@@ -30,13 +30,13 @@
 
 现在而言, 以上的逻辑就错误了, 因为之前旧的键值对的记录也需要保留, 其可能会被比当前事务`id`更小的事务使用, 因此这里就不能进行原位更新了, 而是应该插入一个新的键值对, 同时保留旧的键值对。
 
-> 你可以查看 `SkiplistNode` 的比较运算符重载函数, 看看为什么如此设计
+> 你可以查看 `Skiplist`中`Node` 的比较函数, 看看为什么如此设计
 
 ### 2.1.2 remove
 由于`LSM Tree`中的`remove`就是将插入一个`value`为空的键值对进行标记, 因此这里的修改逻辑和`put`类似, 不再赘述。
 
 ### 2.1.3 get
-加入事务属性后, `get`函数需要判断查询数据的可见性(也就是实现事务属性中的隔离性), 传入的`tranc_id`参数表示当前操作所属的事务的`id`, 因此查询的数据不能是比当前`id`更大的事务创建的, 如果找到了这样的数据, 你需要进行滤除或跳过。
+加入事务属性后, `get`函数需要判断查询数据的可见性(也就是实现事务属性中的隔离性), 传入的`txn_id`参数表示当前操作所属的事务的`id`, 因此查询的数据不能是比当前`id`更大的事务创建的, 如果找到了这样的数据, 你需要进行滤除或跳过。
 
 新的查询逻辑步骤为：
 查询时, 我们需要指定一个事务`id`, 通过`id`判断如何启用`mvcc`机制, 目前我们实现的隔离级别只有(`读未提交`, `读已提交`, `可重复读`)
@@ -45,23 +45,13 @@
 
 > 本项目只在`commit`后才将事务更改的键值对加入数据库, 否则只会暂存, 因此`读已提交`不需要判断事务`id`
 
-### 2.1.4 iters_monotony_predicate && begin_preffix && end_preffix
-其实这些范围查询等函数也需要进行修改, 但这不是必须的, 因为范围查询函数被上部组件`MemTable`包裹, 你可以选择在上层组件中统一实现事务`id`的滤除逻辑。因此这里的更改你可以选择性实现。
 
 ## 2.2 MemTable 部分修改
-### 2.2.1 iters_preffix && iters_monotony_predicate
-`MemTable`部分对范围查询是内存部分的最顶级组件了, 在上层就是整个`LSM Tree`的控制结构`LSMEngine`了, 因此推荐你在此处根据事务可见性原则对键值对进行滤除。
-
-不过这里也有另一个方案, 我们的返回值类型是`std::optional<std::pair<HeapIterator, HeapIterator>>`, 因此你也可以在`HeapIterator`中实现类似的根据事务`id`的滤除逻辑, 这样上层组件就不需要额外处理了。如果你选择用这种方式的话, `HeapIterator`的运算符重载、之前标记的`skip_by_tranc_id`函数都需要更改。
-
-> `HeapIterator`中的更新是强烈推荐你实现的, 因为这个去重+排序的组件你可能会在其他地方进行复用, 因此实现其功能的完善有助于简化复用过程中的数据处理
-
-### 2.2.2 其余接口
-其余接口基本上是对底层`Skiplist`的封装, 因此你只要更新了`Skiplist`的接口, `MemTable`的接口则只需要做简单的参数传递, 不需要额外的更新。
+`MemTable`大部分接口基本上是对底层`Skiplist`的封装, 因此你只要更新了`Skiplist`的接口, `MemTable`的接口则只需要做简单的参数传递, 不需要额外的更新。
 
 ## 2.3 Block 部分修改
 ### 2.3.1 add_entry
-之前的`src/block/block.cpp`中的`Block::add_entry`函数需要写入`tranc_id`, 当然你大概率已经写入了, 虽然你当时不知道这个`tranc_id`具体是干嘛的, 如果你之前已经完成了`tranc_id`的编码, 请跳过这一部分。
+之前的`block.go`中的`Add`函数需要写入`txnID`, 当然你大概率已经写入了, 虽然你当时不知道这个`txn_id`具体是干嘛的, 如果你之前已经完成了`txnID`的编码, 请跳过这一部分。
 
 除了`Block`之外, `SST`的文件编码部分应该只是调用`Block`的接口, 因此你只需要修改`Block`
 
@@ -83,27 +73,21 @@ func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
 
 因此这些`key`可能是连续分布的, 你需要根据事务`id`的滤除逻辑, 筛选出可见且`id`最大的键值对返回。
 
-### 2.3.3 get_idx_binary
-`get_idx_binary`函数用于二分查找定位`key`在`Block`中的索引位置, 你需要修改这个函数, 使其能够支持`tranc_id`的滤除。(可以借助刚刚实现的`adjust_idx_by_tranc_id`函数)
-
-### 2.3.4 get_monotony_predicate_iters && iters_preffix
-这里的`get_monotony_predicate_iters`函数需要修改, 使其能够支持`tranc_id`的滤除。不过和`SKiplist`中的范围查询类似, `Block::get_monotony_predicate_iters`会被`SST`部分的范围查询接口调用, 因此你也可以选择在上层统一实现根据事务`id`的滤除工作, 这里的实现是可选的。
-
 ## 2.5 各类迭代器
 我们实现了多种迭代器都需要在其自增运算符中实现事务`id`的滤除逻辑, 因此你需要更新的迭代器包括：
-1. `HeapIterator`
-2. `BlockIterator`
-3. `SSTIterator`
-4. `ConcactIterator`
-5. `LevelIterator`
-6. `TwoMergeIterator`
+1. `SkipListIteratorType`
+2. `SSTIteratorType`
+3. `HeapIteratorType`
+4. `MergeIteratorType`
+5. `SelectIteratorType`
+6. `ConcatIteratorType`
 
-当然, 你不一定需要再每一个迭代器中都实现类似的逻辑, 以`TwoMergeIterator`为例, 如果其中的`it_a`和`it_b`都实现了基于事务`id`的滤除功能, 那么`TwoMergeIterator`就不需要再实现一次了。
+当然, 你不一定需要再每一个迭代器中都实现类似的逻辑, 以`MergeIteratorType`为例, 如果其中的`it_a`和`it_b`都实现了基于事务`id`的滤除功能, 那么`MergeIteratorType`就不需要再实现一次了。
 
-> 不过这里`it_a`和`it_b`都是基类`BaseIterator`的指针, 因此你如果想要少实现这个逻辑, 需要好好地进行设计, 提供其是否实现了滤除逻辑的接口。当然，你在所有迭代器全部都实现一次这个滤除逻辑是最保险的做法。
+> 不过这里`it_a`和`it_b`都是实现了`Iterator`接口, 因此你如果想要少实现这个逻辑, 需要好好地进行设计, 提供其是否实现了滤除逻辑的接口。当然，你在所有迭代器全部都实现一次这个滤除逻辑是最保险的做法。
 
 ## 2.6 Engine部分修改
-`LSMEngine`的大部分接口都是对下层组件(包括`MemTable`、`SST`等)的封装, 因此你只需要想对应的接口传递正确的`tranc_id`即可, 不需要额外的修改。
+`LSMEngine`的大部分接口都是对下层组件(包括`MemTable`、`SST`等)的封装, 因此你只需要想对应的接口传递正确的`txn_id`即可, 不需要额外的修改。
 
 这里只有范围查询(谓词查询)需要你注意, 这里是对包括谓词查询、前缀查询等接口的最顶层封装, 你需要在上层组件中实现根据事务`id`的滤除逻辑。
 
@@ -113,8 +97,6 @@ func (b *Block) GetValue(key string, txnID uint64) (string, bool) {
 > TODO: 这一部分给参与者的自由度稍高, 引导可能也弱了一点, 后续版本更新的指导书应该加以改正
 
 # 3 测试
-由于事务功能的耦合度较高, 因此现在还没有办法进行单元测试, 你可以按照自己的需要编写测试用例进行测试, 测试用例的编写思路和之前的`Lab`类似, 你可以参考`src/test`中的测试用例进行编写。
-
-不过别忘了我们在[Lab 1.3](../lab1/lab1.3-range-query.md)中先搁置的`SkipListTest.TransactionId`单元测试, 此时你应该可以通过这个单元测试测例。
+由于事务功能的耦合度较高, 因此现在还没有办法进行单元测试, 你可以按照自己的需要编写测试用例进行测试, 测试用例的编写思路和之前的`Lab`类似
 
 > TODO: 后续版本中补全这里的阶段性测试, 而不是2个Lab完成后才有一个大测试
